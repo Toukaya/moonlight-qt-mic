@@ -9,6 +9,9 @@ on:
       ci_version:
         required: true
         type: string
+    secrets:
+      SUBMODULE_TOKEN:
+        required: false
 
 jobs:
   build:
@@ -29,10 +32,19 @@ jobs:
 
     steps:
       - name: Checkout Repository
+        if: ${{ secrets.SUBMODULE_TOKEN == '' }}
         uses: actions/checkout@v5
         with:
           submodules: 'recursive'
           fetch-depth: 1
+
+      - name: Checkout Repository (Private Submodule Token)
+        if: ${{ secrets.SUBMODULE_TOKEN != '' }}
+        uses: actions/checkout@v5
+        with:
+          submodules: 'recursive'
+          fetch-depth: 1
+          token: ${{ secrets.SUBMODULE_TOKEN }}
 
       - name: Install create-dmg (macOS)
         if: runner.os == 'macOS'
