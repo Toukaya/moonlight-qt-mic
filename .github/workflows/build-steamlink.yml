@@ -21,19 +21,11 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        if: ${{ secrets.SUBMODULE_TOKEN == '' }}
         uses: actions/checkout@v5
         with:
           submodules: 'recursive'
           fetch-depth: 1
-
-      - name: Checkout Repository (Private Submodule Token)
-        if: ${{ secrets.SUBMODULE_TOKEN != '' }}
-        uses: actions/checkout@v5
-        with:
-          submodules: 'recursive'
-          fetch-depth: 1
-          token: ${{ secrets.SUBMODULE_TOKEN }}
+          token: ${{ secrets.SUBMODULE_TOKEN || github.token }}
 
       - name: Checkout Steam Link SDK
         uses: actions/checkout@v5
