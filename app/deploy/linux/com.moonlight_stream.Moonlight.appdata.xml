@@ -51,6 +51,16 @@
 	</screenshots>
 
 	<releases>
+		<release version="6.1.0.1" date="2026-03-17">
+			<description>
+				<p>Fork release highlights:</p>
+				<ul>
+					<li>Added client microphone passthrough support for Sunshine hosts</li>
+					<li>Added microphone stream diagnostics to help validate host/client setup</li>
+					<li>Added a microphone input preview in settings to verify local capture before streaming</li>
+				</ul>
+			</description>
+		</release>
 		<release version="6.1.0" date="2024-09-16">
 			<description>
 				<p>New features:</p>
