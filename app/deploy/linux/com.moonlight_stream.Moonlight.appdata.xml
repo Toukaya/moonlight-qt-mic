@@ -50,11 +50,21 @@
 		</screenshot>
 	</screenshots>
 
-	<releases>
-		<release version="6.1.0.1" date="2026-03-17">
-			<description>
-				<p>Fork release highlights:</p>
-				<ul>
+		<releases>
+			<release version="6.1.0.2" date="2026-03-18">
+				<description>
+					<p>Fork release highlights:</p>
+					<ul>
+						<li>Improved client microphone packet pacing to reduce intermittent microphone dropouts</li>
+						<li>Added capture-device diagnostics for microphone callback sizing and pacing behavior</li>
+						<li>Kept 20 ms Opus voice framing with continuous packet delivery for Apollo microphone passthrough</li>
+					</ul>
+				</description>
+			</release>
+			<release version="6.1.0.1" date="2026-03-17">
+				<description>
+					<p>Fork release highlights:</p>
+					<ul>
 					<li>Added client microphone passthrough support for Sunshine hosts</li>
 					<li>Added microphone stream diagnostics to help validate host/client setup</li>
 					<li>Added a microphone input preview in settings to verify local capture before streaming</li>
