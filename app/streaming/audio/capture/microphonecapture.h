@@ -48,8 +48,12 @@ private:
     std::condition_variable m_BufferCondition;
     std::thread m_EncoderThread;
 
-    static constexpr int kSampleRate = 48000;
-    static constexpr int kChannels = 1;
-    static constexpr int kFrameSize = 960;
-    static constexpr int kBitrate = 64000;
+    // Negotiated at runtime from the device's native config. Opus accepts
+    // only 8/12/16/24/48 kHz mono or stereo, so when the device's native
+    // rate is one of those, we encode at it directly (no resample). For
+    // any other native rate (e.g. 44.1 kHz on most macOS built-in mics)
+    // we fall back to 48 kHz and let SDL resample.
+    int m_OpusRate;
+    int m_OpusChannels;
+    int m_FrameSize;     // samples per channel for one 20 ms Opus frame
 };
