@@ -1,4 +1,8 @@
 // Ported from wjbeckett/artemis (GPL). Clipboard-sync settings only.
+//
+// MEMBER-style (Moonlight convention): public fields, no setters. QML writes
+// fields directly; persistence is done by the explicit save() call from
+// SettingsView.qml lifecycle hooks (onDeactivating / Component.onDestruction).
 #include "artemissettings.h"
 #include <QStandardPaths>
 #include <QDir>
@@ -8,10 +12,12 @@ ArtemisSettings* ArtemisSettings::s_instance = nullptr;
 
 ArtemisSettings::ArtemisSettings(QObject *parent)
     : QObject(parent)
+    , clipboardSyncEnabled(false)
+    , clipboardSyncBidirectional(true)
+    , clipboardSyncMaxSize(1048576)
+    , clipboardSyncTextOnly(true)
+    , clipboardSyncShowNotifications(true)
     , m_settings(nullptr)
-    , m_clipboardSyncEnabled(false)
-    , m_clipboardSyncBidirectional(true)
-    , m_clipboardSyncMaxSize(1048576)
 {
     QString configPath = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
     QDir configDir(configPath);
@@ -50,9 +56,11 @@ void ArtemisSettings::save()
     }
 
     m_settings->beginGroup("ClipboardSync");
-    m_settings->setValue("enabled", m_clipboardSyncEnabled);
-    m_settings->setValue("bidirectional", m_clipboardSyncBidirectional);
-    m_settings->setValue("maxSize", m_clipboardSyncMaxSize);
+    m_settings->setValue("enabled", clipboardSyncEnabled);
+    m_settings->setValue("bidirectional", clipboardSyncBidirectional);
+    m_settings->setValue("maxSize", clipboardSyncMaxSize);
+    m_settings->setValue("textOnly", clipboardSyncTextOnly);
+    m_settings->setValue("showNotifications", clipboardSyncShowNotifications);
     m_settings->endGroup();
 
     m_settings->sync();
@@ -65,9 +73,11 @@ void ArtemisSettings::load()
     }
 
     m_settings->beginGroup("ClipboardSync");
-    m_clipboardSyncEnabled = m_settings->value("enabled", false).toBool();
-    m_clipboardSyncBidirectional = m_settings->value("bidirectional", true).toBool();
-    m_clipboardSyncMaxSize = m_settings->value("maxSize", 1048576).toInt();
+    clipboardSyncEnabled = m_settings->value("enabled", false).toBool();
+    clipboardSyncBidirectional = m_settings->value("bidirectional", true).toBool();
+    clipboardSyncMaxSize = m_settings->value("maxSize", 1048576).toInt();
+    clipboardSyncTextOnly = m_settings->value("textOnly", true).toBool();
+    clipboardSyncShowNotifications = m_settings->value("showNotifications", true).toBool();
     m_settings->endGroup();
 }
 
@@ -79,35 +89,15 @@ void ArtemisSettings::resetToDefaults()
     emit clipboardSyncEnabledChanged();
     emit clipboardSyncBidirectionalChanged();
     emit clipboardSyncMaxSizeChanged();
+    emit clipboardSyncTextOnlyChanged();
+    emit clipboardSyncShowNotificationsChanged();
 }
 
 void ArtemisSettings::loadDefaults()
 {
-    m_clipboardSyncEnabled = false;
-    m_clipboardSyncBidirectional = true;
-    m_clipboardSyncMaxSize = 1048576;
-}
-
-void ArtemisSettings::setClipboardSyncEnabled(bool enabled)
-{
-    if (m_clipboardSyncEnabled != enabled) {
-        m_clipboardSyncEnabled = enabled;
-        emit clipboardSyncEnabledChanged();
-    }
-}
-
-void ArtemisSettings::setClipboardSyncBidirectional(bool bidirectional)
-{
-    if (m_clipboardSyncBidirectional != bidirectional) {
-        m_clipboardSyncBidirectional = bidirectional;
-        emit clipboardSyncBidirectionalChanged();
-    }
-}
-
-void ArtemisSettings::setClipboardSyncMaxSize(int maxSize)
-{
-    if (m_clipboardSyncMaxSize != maxSize) {
-        m_clipboardSyncMaxSize = maxSize;
-        emit clipboardSyncMaxSizeChanged();
-    }
+    clipboardSyncEnabled = false;
+    clipboardSyncBidirectional = true;
+    clipboardSyncMaxSize = 1048576;
+    clipboardSyncTextOnly = true;
+    clipboardSyncShowNotifications = true;
 }

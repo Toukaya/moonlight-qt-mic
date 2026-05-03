@@ -39,15 +39,20 @@ ClipboardManager::ClipboardManager(QObject *parent)
 void ClipboardManager::loadSettings()
 {
     auto settings = ArtemisSettings::instance();
-    m_enabled = settings->clipboardSyncEnabled();
+    m_enabled = settings->clipboardSyncEnabled;
     m_smartSyncEnabled = m_enabled;
-    m_bidirectionalSync = settings->clipboardSyncBidirectional();
-    m_maxClipboardSize = settings->clipboardSyncMaxSize();
+    m_bidirectionalSync = settings->clipboardSyncBidirectional;
+    m_maxClipboardSize = settings->clipboardSyncMaxSize;
     m_maxContentSizeMB = m_maxClipboardSize / (1024 * 1024);
+    m_textOnlyMode = settings->clipboardSyncTextOnly;
+    m_showNotifications = settings->clipboardSyncShowNotifications;
+    m_showToast = m_showNotifications;
 
     qDebug() << "ClipboardManager: Loaded settings - enabled:" << m_enabled
              << "bidirectional:" << m_bidirectionalSync
-             << "maxSize:" << m_maxClipboardSize << "bytes";
+             << "maxSize:" << m_maxClipboardSize << "bytes"
+             << "textOnly:" << m_textOnlyMode
+             << "showNotifications:" << m_showNotifications;
 }
 
 ClipboardManager::~ClipboardManager()
@@ -210,11 +215,9 @@ void ClipboardManager::setBidirectionalSync(bool enabled)
 {
     if (m_bidirectionalSync != enabled) {
         m_bidirectionalSync = enabled;
-
-        auto settings = ArtemisSettings::instance();
-        settings->setClipboardSyncBidirectional(enabled);
-        settings->save();
-
+        // Mirror to ArtemisSettings; persistence happens via SettingsView.qml
+        // calling ArtemisSettings.save() at view-close / app-shutdown.
+        ArtemisSettings::instance()->clipboardSyncBidirectional = enabled;
         emit bidirectionalSyncChanged();
     }
 }
@@ -390,11 +393,8 @@ void ClipboardManager::setEnabled(bool enabled)
     if (m_enabled != enabled) {
         m_enabled = enabled;
         enableSmartSync(enabled);
-
-        auto settings = ArtemisSettings::instance();
-        settings->setClipboardSyncEnabled(enabled);
-        settings->save();
-
+        // Mirror to ArtemisSettings; persistence is via SettingsView.qml hooks.
+        ArtemisSettings::instance()->clipboardSyncEnabled = enabled;
         emit enabledChanged();
     }
 }
@@ -403,6 +403,7 @@ void ClipboardManager::setTextOnlyMode(bool textOnly)
 {
     if (m_textOnlyMode != textOnly) {
         m_textOnlyMode = textOnly;
+        ArtemisSettings::instance()->clipboardSyncTextOnly = textOnly;
         emit textOnlyModeChanged();
     }
 }
@@ -412,11 +413,7 @@ void ClipboardManager::setMaxContentSizeMB(int sizeMB)
     if (m_maxContentSizeMB != sizeMB) {
         m_maxContentSizeMB = sizeMB;
         m_maxClipboardSize = sizeMB * 1024 * 1024;
-
-        auto settings = ArtemisSettings::instance();
-        settings->setClipboardSyncMaxSize(m_maxClipboardSize);
-        settings->save();
-
+        ArtemisSettings::instance()->clipboardSyncMaxSize = m_maxClipboardSize;
         emit maxContentSizeMBChanged();
     }
 }
@@ -426,6 +423,7 @@ void ClipboardManager::setShowNotifications(bool show)
     if (m_showNotifications != show) {
         m_showNotifications = show;
         m_showToast = show;
+        ArtemisSettings::instance()->clipboardSyncShowNotifications = show;
         emit showNotificationsChanged();
     }
 }

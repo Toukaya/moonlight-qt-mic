@@ -4,6 +4,7 @@ import QtQuick.Layouts 1.2
 import QtQuick.Window 2.2
 
 import StreamingPreferences 1.0
+import ArtemisSettings 1.0
 import ComputerManager 1.0
 import SdlGamepadKeyNavigation 1.0
 import SystemProperties 1.0
@@ -87,6 +88,7 @@ Flickable {
 
         // Save the prefs so the Session can observe the changes
         StreamingPreferences.save()
+        ArtemisSettings.save()
     }
 
     Component.onDestruction: {
@@ -94,6 +96,7 @@ Flickable {
         // deactivating callback if the user just closes Moonlight
         StreamingPreferences.setMicrophoneMonitorActive(false)
         StreamingPreferences.save()
+        ArtemisSettings.save()
     }
 
     Column {
