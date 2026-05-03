@@ -12,15 +12,33 @@ You can follow development on our [Discord server](https://moonlight-stream.org/
 
 ## About This Fork
 
-This is a fork of [moonlight-stream/moonlight-qt](https://github.com/moonlight-stream/moonlight-qt) extended with client-to-host microphone uplink.
+This is a fork of [moonlight-stream/moonlight-qt](https://github.com/moonlight-stream/moonlight-qt). It pairs with the [Toukaya/Apollo](https://github.com/Toukaya/Apollo) host fork (a Sunshine derivative). The shared `moonlight-common-c` submodule lives at [Toukaya/moonlight-common-c](https://github.com/Toukaya/moonlight-common-c) on branch `feat/mic-pcm`.
 
-The mic stream uses **raw 16-bit little-endian PCM** (default 48 kHz mono, 10 ms wire frames) instead of Opus. The wire format — sample rate, channel count, bit depth, sample format, frame duration — is negotiated via a custom RTSP SDP extension (`a=fmtp:97 x-ml-mic.*` attributes). If the host does not advertise a PCM mic configuration the client refuses to enable mic rather than silently falling back.
+The fork adds the following features on top of upstream moonlight-qt:
 
-This fork pairs with a compatible host implementation. The reference host is [Toukaya/Apollo](https://github.com/Toukaya/Apollo), which receives PCM mic packets and renders them into the Steam Streaming Microphone endpoint on Windows.
+### Microphone uplink (client → host)
 
-The shared moonlight-common-c (containing `LiSendMicrophonePcmData`, `MIC_PACKET_TYPE_PCM = 0x61`, and the new SDP parser additions) lives at [Toukaya/moonlight-common-c](https://github.com/Toukaya/moonlight-common-c) on branch `feat/mic-pcm`, used as the submodule by both this client and the Apollo host.
+Captures the local microphone (SDL2 CoreAudio HAL on macOS) and uplinks **raw 16-bit little-endian PCM** (default 48 kHz mono, 10 ms wire frames) — Opus is bypassed entirely. The wire format (sample rate, channel count, bit depth, sample format, frame duration) is negotiated via a custom RTSP SDP extension (`a=fmtp:97 x-ml-mic.*` attributes); if the host does not advertise PCM mic configuration the client refuses to enable mic rather than silently falling back.
 
-On macOS the app captures via SDL2 CoreAudio HAL. `Info.plist` carries `NSMicrophoneUsageDescription` so the system displays the TCC microphone-permission prompt the first time the user enables mic.
+The shared moonlight-common-c carries `LiSendMicrophonePcmData`, `MIC_PACKET_TYPE_PCM = 0x61`, and the new SDP parser helpers (`parsePcmMicConfig` etc.). On macOS, `Info.plist` ships `NSMicrophoneUsageDescription` so the system displays the TCC microphone-permission prompt the first time mic is enabled.
+
+### Clipboard sync (bidirectional)
+
+Ported from [ClassicOldSong's artemis](https://github.com/ClassicOldSong/moonlight-android). Client → host upload of the local clipboard, host → client fetch of the Windows clipboard. Triggered manually from the QuickMenu (see below) or via Settings. Status changes show as a toast overlay rendered on the SDL streaming surface (visible above the fullscreen video). Settings live under a new `ClipboardSettings` panel. Includes a fix for the SSL handshake against Apollo's self-signed cert that broke the Mac → Win direction in the original artemis port.
+
+### QuickMenu (in-stream overlay)
+
+Ported from artemis. Hotkey **Ctrl+Alt+Shift+\\** during streaming pops a QML overlay offering: disconnect, quit, clipboard upload, clipboard fetch, toggle perf stats, toggle mouse capture, toggle keyboard ungrab, toggle fullscreen. Implementation reuses the existing `SdlInputHandler::performSpecialKeyCombo` dispatch so the overlay does not need its own input pipeline.
+
+### macOS keyboard remap during streaming
+
+Pragmatic Mac-on-Win accommodations gated to system-key-capture mode:
+- Mac **⌘ Cmd** is mapped to host **Ctrl** so Cmd+C / V / X / Z / A / F / S work as Ctrl+C / V / X / Z / A / F / S on the Windows host.
+- Mac **⌃ Control** is mapped to host **⊞ Win / Meta** so Control+key reaches Windows shortcuts. Gated to capture mode so non-capture single-press of Control does not pop the host Start menu.
+
+### Build adjustments
+
+`moonlight-qt.pro`'s `qtCompileTest(EGL)` is skipped on macOS (EGL is X11/Linux-only and the test fails on Apple targets where nothing in the build needs it).
 
 ## Features
  - Hardware accelerated video decoding on Windows, Mac, and Linux
