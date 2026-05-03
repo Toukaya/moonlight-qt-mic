@@ -2,9 +2,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cmath>
-#include <cstdlib>
-#include <cstring>
 #include <Limelight.h>
 
 MicrophoneCapture::MicrophoneCapture(QObject* parent)
@@ -20,14 +17,6 @@ MicrophoneCapture::MicrophoneCapture(QObject* parent)
     , m_OpusRate(48000)
     , m_OpusChannels(1)
     , m_FrameSize(960)
-    , m_PcmDumpFile(nullptr)
-    , m_PcmDumpDataBytes(0)
-    , m_StatsFrameCounter(0)
-    , m_StatsTrimCount(0)
-    , m_StatsBufferHighWater(0)
-    , m_StatsPeakAbs(0)
-    , m_StatsBytesEncoded(0)
-    , m_StatsPacketsEncoded(0)
 {
 }
 
@@ -62,8 +51,6 @@ MicrophoneCapture::~MicrophoneCapture()
         opus_encoder_destroy(m_Encoder);
         m_Encoder = nullptr;
     }
-
-    closePcmDump();
 }
 
 bool MicrophoneCapture::initialize(const std::string& deviceName)
@@ -218,7 +205,6 @@ bool MicrophoneCapture::initialize(const std::string& deviceName)
 
     SDL_PauseAudioDevice(m_DeviceId, 1);
     m_SampleBuffer.reserve(static_cast<size_t>(m_FrameSize) * m_OpusChannels * 4);
-    openPcmDump();
     m_StopEncoderThread.store(false, std::memory_order_release);
     m_EncoderThread = std::thread(&MicrophoneCapture::encoderLoop, this);
     m_Initialized = true;
@@ -287,17 +273,9 @@ void MicrophoneCapture::handleAudioData(const Uint8* stream, int len)
     const auto* inputSamples = reinterpret_cast<const opus_int16*>(stream);
     const int valueCount = len / (int)sizeof(opus_int16);
 
-    // Diagnostic: write the post-SDL samples to a WAV file (if requested via
-    // env var). Doing this BEFORE the buffer/trim path means the WAV is what
-    // SDL gave us, untouched by anything we do downstream.
-    writePcmDump(inputSamples, valueCount);
-
     {
         std::lock_guard lock(m_BufferMutex);
         m_SampleBuffer.insert(m_SampleBuffer.end(), inputSamples, inputSamples + valueCount);
-        if (m_SampleBuffer.size() > m_StatsBufferHighWater) {
-            m_StatsBufferHighWater = m_SampleBuffer.size();
-        }
         // ~240 ms ceiling: drop the OLDEST samples once we exceed it. Buffer
         // values are interleaved across channels, so the cap scales with
         // m_OpusChannels.
@@ -305,7 +283,6 @@ void MicrophoneCapture::handleAudioData(const Uint8* stream, int len)
         if (m_SampleBuffer.size() > maxBufferedValues) {
             const auto trimValues = m_SampleBuffer.size() - maxBufferedValues;
             m_SampleBuffer.erase(m_SampleBuffer.begin(), m_SampleBuffer.begin() + trimValues);
-            m_StatsTrimCount++;
         }
     }
     m_BufferCondition.notify_one();
@@ -360,15 +337,6 @@ void MicrophoneCapture::encoderLoop()
 
         nextSendDeadline += frameDuration;
 
-        // Track input peak amplitude for the stats line below.
-        for (int i = 0; i < frameValues; i++) {
-            opus_int16 s = frame[i];
-            opus_int16 a = (s < 0) ? (opus_int16)(-(s + 1)) : s; // avoid INT16_MIN overflow
-            if (a > m_StatsPeakAbs) {
-                m_StatsPeakAbs = a;
-            }
-        }
-
         int encodedBytes = opus_encode(m_Encoder,
                                        frame.data(),
                                        m_FrameSize,
@@ -389,38 +357,6 @@ void MicrophoneCapture::encoderLoop()
             SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                         "LiSendMicrophoneOpusDataEx() failed for microphone capture");
         }
-
-        m_StatsBytesEncoded += encodedBytes;
-        m_StatsPacketsEncoded++;
-        m_StatsFrameCounter++;
-
-        // Emit a stats line every ~1 s (50 frames at 20 ms each), so we can
-        // see whether the encoder is starving, overrunning, clipping, etc.
-        const int framesPerSec = 1000 / std::max(1, (m_FrameSize * 1000) / m_OpusRate);
-        if (m_StatsFrameCounter >= framesPerSec) {
-            const double peakDbfs = (m_StatsPeakAbs > 0)
-                ? 20.0 * std::log10(static_cast<double>(m_StatsPeakAbs) / 32767.0)
-                : -120.0;
-            const double avgKbps = (m_StatsPacketsEncoded > 0)
-                ? (static_cast<double>(m_StatsBytesEncoded) * 8.0 / 1000.0)
-                : 0.0;
-            const std::size_t bufferHwMs = (m_StatsBufferHighWater * 1000)
-                / (static_cast<std::size_t>(m_OpusRate) * m_OpusChannels);
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Mic stats[1s]: peak=%.1fdBFS, encoded=%d pkts (%.0f kbps avg), buf-hw=%zu values (%zu ms), trims=%d",
-                        peakDbfs,
-                        m_StatsPacketsEncoded,
-                        avgKbps,
-                        m_StatsBufferHighWater,
-                        bufferHwMs,
-                        m_StatsTrimCount);
-            m_StatsFrameCounter = 0;
-            m_StatsTrimCount = 0;
-            m_StatsBufferHighWater = 0;
-            m_StatsPeakAbs = 0;
-            m_StatsBytesEncoded = 0;
-            m_StatsPacketsEncoded = 0;
-        }
     }
 }
 
@@ -430,90 +366,4 @@ void MicrophoneCapture::clearBufferedSamples()
         std::lock_guard lock(m_BufferMutex);
         m_SampleBuffer.clear();
     }
-}
-
-namespace {
-
-// Pack a little-endian uint32 / uint16 into a buffer.
-void leU32(unsigned char* p, std::uint32_t v) {
-    p[0] = (unsigned char)(v & 0xFF);
-    p[1] = (unsigned char)((v >> 8) & 0xFF);
-    p[2] = (unsigned char)((v >> 16) & 0xFF);
-    p[3] = (unsigned char)((v >> 24) & 0xFF);
-}
-void leU16(unsigned char* p, std::uint16_t v) {
-    p[0] = (unsigned char)(v & 0xFF);
-    p[1] = (unsigned char)((v >> 8) & 0xFF);
-}
-
-} // namespace
-
-void MicrophoneCapture::openPcmDump()
-{
-    const char* path = std::getenv("MOONLIGHT_MIC_DUMP_PCM");
-    if (path == nullptr || *path == '\0') {
-        return;
-    }
-    m_PcmDumpFile = std::fopen(path, "wb");
-    if (m_PcmDumpFile == nullptr) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                    "MOONLIGHT_MIC_DUMP_PCM is set but fopen('%s') failed", path);
-        return;
-    }
-
-    // Write a 44-byte WAV header with placeholder sizes; we patch in the
-    // real sizes in closePcmDump(). Format: PCM 16-bit, m_OpusRate, m_OpusChannels.
-    unsigned char hdr[44];
-    std::memcpy(hdr, "RIFF", 4);
-    leU32(hdr + 4, 0); // RIFF size — filled in on close
-    std::memcpy(hdr + 8, "WAVEfmt ", 8);
-    leU32(hdr + 16, 16);          // fmt chunk size
-    leU16(hdr + 20, 1);           // PCM
-    leU16(hdr + 22, (std::uint16_t)m_OpusChannels);
-    leU32(hdr + 24, (std::uint32_t)m_OpusRate);
-    const std::uint32_t byteRate = (std::uint32_t)m_OpusRate * (std::uint32_t)m_OpusChannels * 2;
-    leU32(hdr + 28, byteRate);
-    leU16(hdr + 32, (std::uint16_t)(m_OpusChannels * 2)); // block align
-    leU16(hdr + 34, 16);          // bits per sample
-    std::memcpy(hdr + 36, "data", 4);
-    leU32(hdr + 40, 0);           // data size — filled in on close
-    std::fwrite(hdr, 1, sizeof(hdr), m_PcmDumpFile);
-    m_PcmDumpDataBytes = 0;
-    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                "Mic PCM dump: writing post-SDL samples to '%s' (%d Hz, %d ch, S16LE)",
-                path, m_OpusRate, m_OpusChannels);
-}
-
-void MicrophoneCapture::writePcmDump(const opus_int16* samples, int valueCount)
-{
-    if (m_PcmDumpFile == nullptr || valueCount <= 0) {
-        return;
-    }
-    const std::size_t bytes = static_cast<std::size_t>(valueCount) * sizeof(opus_int16);
-    std::fwrite(samples, 1, bytes, m_PcmDumpFile);
-    m_PcmDumpDataBytes += bytes;
-}
-
-void MicrophoneCapture::closePcmDump()
-{
-    if (m_PcmDumpFile == nullptr) {
-        return;
-    }
-    // Patch the placeholder sizes in the WAV header so the file is valid.
-    const std::uint32_t dataSize = (std::uint32_t)m_PcmDumpDataBytes;
-    const std::uint32_t riffSize = dataSize + 36;
-    unsigned char buf[4];
-    if (std::fseek(m_PcmDumpFile, 4, SEEK_SET) == 0) {
-        leU32(buf, riffSize);
-        std::fwrite(buf, 1, 4, m_PcmDumpFile);
-    }
-    if (std::fseek(m_PcmDumpFile, 40, SEEK_SET) == 0) {
-        leU32(buf, dataSize);
-        std::fwrite(buf, 1, 4, m_PcmDumpFile);
-    }
-    std::fclose(m_PcmDumpFile);
-    m_PcmDumpFile = nullptr;
-    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                "Mic PCM dump: closed (%llu data bytes)",
-                (unsigned long long)dataSize);
 }

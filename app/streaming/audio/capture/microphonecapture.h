@@ -4,8 +4,6 @@
 #include <atomic>
 #include <array>
 #include <condition_variable>
-#include <cstdio>
-#include <cstdint>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -58,24 +56,4 @@ private:
     int m_OpusRate;
     int m_OpusChannels;
     int m_FrameSize;     // samples per channel for one 20 ms Opus frame
-
-    // Diagnostic: dump the exact PCM that gets fed into the Opus encoder
-    // to a WAV file, so the user can play it back and bisect whether
-    // corruption is upstream (SDL/macOS) or downstream (Opus/network/server).
-    // Enabled by env var MOONLIGHT_MIC_DUMP_PCM=/path/to/file.wav
-    void openPcmDump();
-    void writePcmDump(const opus_int16* samples, int valueCount);
-    void closePcmDump();
-    std::FILE* m_PcmDumpFile;
-    std::uint64_t m_PcmDumpDataBytes;
-
-    // Periodic stats: every ~1 s we log peak amplitude, encoder packet sizes,
-    // sample-buffer high-water mark, and trim count, so we can see if the
-    // encoder ever sees clipped / silent / unstable input.
-    int m_StatsFrameCounter;
-    int m_StatsTrimCount;
-    std::size_t m_StatsBufferHighWater;
-    opus_int16 m_StatsPeakAbs;
-    std::int64_t m_StatsBytesEncoded;
-    int m_StatsPacketsEncoded;
 };
