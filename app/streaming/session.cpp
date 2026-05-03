@@ -3,6 +3,7 @@
 #include "streaming/streamutils.h"
 #include "backend/richpresencemanager.h"
 #include "backend/clipboardmanager.h"
+#include "backend/quickmenumanager.h"
 #include "backend/nvhttp.h"
 #include "streaming/audio/capture/microphonecapture.h"
 #include <QTimer>
@@ -575,7 +576,8 @@ Session::Session(NvComputer* computer, NvApp& app, StreamingPreferences *prefere
       m_MicrophoneCapture(nullptr),
       m_MicrophoneEnabled(false),
       m_ClipboardManager(ClipboardManager::instance()),
-      m_ClipboardHttp(nullptr)
+      m_ClipboardHttp(nullptr),
+      m_QuickMenuManager(new QuickMenuManager())
 {
 }
 
@@ -583,6 +585,16 @@ Session::~Session()
 {
     // NB: This may not get destroyed for a long time! Don't put any non-trivial cleanup here.
     // Use Session::exec() or DeferredSessionCleanupTask instead.
+
+    // QuickMenuManager is owned by Session — safe to delete (does not hold
+    // shared singleton state, unlike ClipboardManager which we must NOT delete).
+    if (m_QuickMenuManager) {
+        delete m_QuickMenuManager;
+        m_QuickMenuManager = nullptr;
+    }
+
+    // m_ClipboardManager is the process-wide singleton; only nullify, never delete.
+    m_ClipboardManager = nullptr;
 
     SDL_DestroyMutex(m_DecoderLock);
 }
@@ -984,7 +996,23 @@ bool Session::initialize(QQuickWindow* qtWindow)
                          this, showToastOnOverlay);
     }
 
+    if (m_QuickMenuManager) {
+        m_QuickMenuManager->setClipboardManager(m_ClipboardManager);
+        if (m_QtWindow) {
+            m_QuickMenuManager->setWindow(m_QtWindow);
+            m_QuickMenuManager->setWindowGeometry(m_QtWindow->x(), m_QtWindow->y(),
+                                                  m_QtWindow->width(), m_QtWindow->height());
+        }
+    }
+
     return true;
+}
+
+void Session::toggleQuickMenu()
+{
+    if (m_QuickMenuManager) {
+        m_QuickMenuManager->toggle();
+    }
 }
 
 void Session::emitLaunchWarning(QString text)

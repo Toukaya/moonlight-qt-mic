@@ -50,6 +50,7 @@
 #include "backend/autoupdatechecker.h"
 #include "backend/clipboardmanager.h"
 #include "backend/computermanager.h"
+#include "backend/quickmenumanager.h"
 #include "backend/systemproperties.h"
 #include "settings/artemissettings.h"
 #include "streaming/session.h"
@@ -908,6 +909,11 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonType<ArtemisSettings>("ArtemisSettings", 1, 0,
                                               "ArtemisSettings",
                                               &ArtemisSettings::qmlInstance);
+    // QuickMenuManager is wired in by Session via setContextProperty("quickMenuManager", ...)
+    // so QML only needs an uncreatable type registration for property typing.
+    qmlRegisterUncreatableType<QuickMenuManager>("QuickMenuManager", 1, 0,
+                                                 "QuickMenuManager",
+                                                 "QuickMenuManager is owned by Session");
 
     // Create the identity manager on the main thread
     IdentityManager::get();

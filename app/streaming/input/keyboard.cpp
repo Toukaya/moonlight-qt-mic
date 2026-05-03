@@ -153,6 +153,13 @@ void SdlInputHandler::performSpecialKeyCombo(KeyCombo combo)
         SDL_PushEvent(&quitExitEvent);
         break;
 
+    case KeyComboToggleQuickMenu:
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Detected QuickMenu toggle combo");
+        if (Session::get()) {
+            Session::get()->toggleQuickMenu();
+        }
+        break;
+
     default:
         Q_UNREACHABLE();
     }
@@ -204,7 +211,15 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
     // Set modifier flags
     modifiers = 0;
     if (event->keysym.mod & KMOD_CTRL) {
+#ifdef Q_OS_MACOS
+        // Mac Control → Win key (Meta). Gated by capture so single-press of
+        // Mac Control in non-capture mode does not pop the Start menu.
+        if (isSystemKeyCaptureActive()) {
+            modifiers |= MODIFIER_META;
+        }
+#else
         modifiers |= MODIFIER_CTRL;
+#endif
     }
     if (event->keysym.mod & KMOD_ALT) {
         modifiers |= MODIFIER_ALT;
@@ -214,7 +229,12 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
     }
     if (event->keysym.mod & KMOD_GUI) {
         if (isSystemKeyCaptureActive()) {
+#ifdef Q_OS_MACOS
+            // Treat Mac Cmd as host Ctrl so Cmd+C/V/X/Z/A/F/S work on Win.
+            modifiers |= MODIFIER_CTRL;
+#else
             modifiers |= MODIFIER_META;
+#endif
         }
     }
 
@@ -346,10 +366,24 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                 keyCode = 0xA1;
                 break;
             case SDL_SCANCODE_LCTRL:
-                keyCode = 0xA2;
+#ifdef Q_OS_MACOS
+                if (!isSystemKeyCaptureActive()) {
+                    return;
+                }
+                keyCode = 0x5B; // VK_LWIN — Mac Control sent as Win key
+#else
+                keyCode = 0xA2; // VK_LCONTROL
+#endif
                 break;
             case SDL_SCANCODE_RCTRL:
-                keyCode = 0xA3;
+#ifdef Q_OS_MACOS
+                if (!isSystemKeyCaptureActive()) {
+                    return;
+                }
+                keyCode = 0x5C; // VK_RWIN
+#else
+                keyCode = 0xA3; // VK_RCONTROL
+#endif
                 break;
             case SDL_SCANCODE_LALT:
                 keyCode = 0xA4;
@@ -361,13 +395,21 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                 if (!isSystemKeyCaptureActive()) {
                     return;
                 }
-                keyCode = 0x5B;
+#ifdef Q_OS_MACOS
+                keyCode = 0xA2; // VK_LCONTROL — Mac Cmd sent as Win Ctrl
+#else
+                keyCode = 0x5B; // VK_LWIN
+#endif
                 break;
             case SDL_SCANCODE_RGUI:
                 if (!isSystemKeyCaptureActive()) {
                     return;
                 }
-                keyCode = 0x5C;
+#ifdef Q_OS_MACOS
+                keyCode = 0xA3; // VK_RCONTROL
+#else
+                keyCode = 0x5C; // VK_RWIN
+#endif
                 break;
             case SDL_SCANCODE_APPLICATION:
                 keyCode = 0x5D;

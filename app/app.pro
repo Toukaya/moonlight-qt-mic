@@ -170,6 +170,7 @@ SOURCES += \
     backend/computermanager.cpp \
     backend/boxartmanager.cpp \
     backend/clipboardmanager.cpp \
+    backend/quickmenumanager.cpp \
     backend/richpresencemanager.cpp \
     cli/commandlineparser.cpp \
     cli/listapps.cpp \
@@ -217,6 +218,7 @@ HEADERS += \
     backend/computermanager.h \
     backend/boxartmanager.h \
     backend/clipboardmanager.h \
+    backend/quickmenumanager.h \
     backend/richpresencemanager.h \
     cli/commandlineparser.h \
     cli/listapps.h \

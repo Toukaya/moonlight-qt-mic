@@ -14,6 +14,7 @@
 class MicrophoneCapture;
 class ClipboardManager;
 class NvHTTP;
+class QuickMenuManager;
 
 class SupportedVideoFormatList : public QList<int>
 {
@@ -128,6 +129,8 @@ public:
     void flushWindowEvents();
 
     void setShouldExit(bool quitHostApp = false);
+
+    void toggleQuickMenu();
 
 signals:
     void stageStarting(QString stage);
@@ -293,6 +296,10 @@ private:
     ClipboardManager* m_ClipboardManager;
     // Owned by Session; passed to ClipboardManager::setConnection during initialize().
     NvHTTP* m_ClipboardHttp;
+
+    // QuickMenuManager is owned by Session (unlike ClipboardManager). Safe to
+    // delete in the destructor — it holds no shared singleton state.
+    QuickMenuManager* m_QuickMenuManager;
 
     Overlay::OverlayManager m_OverlayManager;
 
