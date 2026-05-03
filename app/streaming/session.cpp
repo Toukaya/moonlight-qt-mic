@@ -5,6 +5,7 @@
 #include "backend/clipboardmanager.h"
 #include "backend/nvhttp.h"
 #include "streaming/audio/capture/microphonecapture.h"
+#include <QTimer>
 
 #include <Limelight.h>
 #include "SDL_compat.h"
@@ -965,6 +966,22 @@ bool Session::initialize(QQuickWindow* qtWindow)
     if (m_ClipboardManager) {
         m_ClipboardHttp = new NvHTTP(m_Computer);
         m_ClipboardManager->setConnection(m_Computer, m_ClipboardHttp);
+
+        // Render toast messages via the existing SDL-surface status overlay
+        // (the same channel used for "Slow connection" warnings). Auto-hides
+        // after 3s. Connection auto-disconnects when this Session is destroyed.
+        auto showToastOnOverlay = [this](const QString &msg) {
+            QByteArray utf8 = msg.toUtf8();
+            m_OverlayManager.updateOverlayText(Overlay::OverlayStatusUpdate, utf8.constData());
+            m_OverlayManager.setOverlayState(Overlay::OverlayStatusUpdate, true);
+            QTimer::singleShot(3000, this, [this]() {
+                m_OverlayManager.setOverlayState(Overlay::OverlayStatusUpdate, false);
+            });
+        };
+        QObject::connect(m_ClipboardManager, &ClipboardManager::showToast,
+                         this, showToastOnOverlay);
+        QObject::connect(m_ClipboardManager, &ClipboardManager::clipboardSyncFailed,
+                         this, showToastOnOverlay);
     }
 
     return true;
