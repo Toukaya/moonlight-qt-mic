@@ -2,54 +2,46 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <cstring>
 #include <Limelight.h>
 
 MicrophoneCapture::MicrophoneCapture(QObject* parent)
     : QObject(parent)
     , m_DeviceId(0)
     , m_ObtainedSpec({})
-    , m_Encoder(nullptr)
+    , m_SampleRate(48000)
+    , m_Channels(1)
+    , m_BytesPerSample(2)
+    , m_SampleFormatId(LI_MIC_FMT_S16LE)
+    , m_WireFrameSamples(480)
+    , m_FrameDurationMs(10)
     , m_Streaming(false)
-    , m_StopEncoderThread(false)
+    , m_StopSenderThread(false)
     , m_Initialized(false)
     , m_Enabled(false)
     , m_FirstPacketLogged(false)
-    , m_OpusRate(48000)
-    , m_OpusChannels(1)
-    , m_FrameSize(960)
+    , m_StatPktsSent(0)
+    , m_StatBytesSent(0)
+    , m_StatBufHwBytes(0)
+    , m_StatTrims(0)
+    , m_StatPeakThisSec(0.0f)
 {
 }
-
-namespace {
-
-// Opus only accepts these input rates. Any other native rate forces a
-// resample step on the way in.
-bool isOpusRate(int rate)
-{
-    return rate == 8000 || rate == 12000 || rate == 16000 ||
-           rate == 24000 || rate == 48000;
-}
-
-} // namespace
 
 MicrophoneCapture::~MicrophoneCapture()
 {
     stop();
 
-    m_StopEncoderThread.store(true, std::memory_order_release);
+    m_StopSenderThread.store(true, std::memory_order_release);
     m_BufferCondition.notify_all();
-    if (m_EncoderThread.joinable()) {
-        m_EncoderThread.join();
+    if (m_SenderThread.joinable()) {
+        m_SenderThread.join();
     }
 
     if (m_DeviceId != 0) {
         SDL_CloseAudioDevice(m_DeviceId);
         m_DeviceId = 0;
-    }
-
-    if (m_Encoder != nullptr) {
-        opus_encoder_destroy(m_Encoder);
-        m_Encoder = nullptr;
     }
 }
 
@@ -66,26 +58,66 @@ bool MicrophoneCapture::initialize(const std::string& deviceName)
         return false;
     }
 
-    // Use the highest-quality SDL resampler that's compiled in. With brew's
-    // SDL2 (no libsamplerate) this falls back to linear interpolation; the
-    // hint is harmless and helps if SDL is ever rebuilt with libsamplerate.
-    SDL_SetHintWithPriority(SDL_HINT_AUDIO_RESAMPLING_MODE, "best", SDL_HINT_OVERRIDE);
+    // Check that the host advertised a PCM mic config before opening any device.
+    LI_MIC_CONFIG cfg = {};
+    if (LiGetNegotiatedMicConfig(&cfg) != 0) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "Host did not advertise PCM mic format; microphone disabled");
+        return false;
+    }
+
+    // Validate the negotiated format. s24le requires pack-down which is
+    // not implemented — refuse it clearly rather than silently misbehaving.
+    if (cfg.sampleFormatId == LI_MIC_FMT_S24LE) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "Host requested s24le mic format which is not supported by this client; microphone disabled");
+        return false;
+    }
+
+    // MTU guard: validate that the host-advertised frame fits in one packet.
+    int bytesPerSample = (cfg.bitsPerSample + 7) / 8;
+    int payloadBytes = cfg.sampleRate * cfg.channels * bytesPerSample * cfg.frameDurationMs / 1000;
+    // AES-CBC worst-case pad: 16 bytes. Header: 12 bytes.
+    if (payloadBytes + 12 + 16 > 1400) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "Host advertised mic frame size (%d bytes payload) exceeds MTU even with smallest frame; microphone disabled",
+                    payloadBytes);
+        return false;
+    }
+
+    // Map sampleFormatId to SDL format.
+    SDL_AudioFormat sdlFormat;
+    switch (cfg.sampleFormatId) {
+    case LI_MIC_FMT_S16LE:
+        sdlFormat = AUDIO_S16LSB;
+        break;
+    case LI_MIC_FMT_S32LE:
+        sdlFormat = AUDIO_S32LSB;
+        break;
+    case LI_MIC_FMT_F32LE:
+        sdlFormat = AUDIO_F32LSB;
+        break;
+    default:
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "Unknown mic sampleFormatId %d; microphone disabled", cfg.sampleFormatId);
+        return false;
+    }
 
     const char* selectedDevice = deviceName.empty() ? nullptr : deviceName.c_str();
 
-    // Phase 1: probe the device's preferred config so we can pair Opus to it
-    // and skip an SDL-internal resample when possible.
+    // Phase 1: probe the device's preferred config.
     SDL_AudioSpec probeDesired = {};
-    probeDesired.freq = 48000;
-    probeDesired.format = AUDIO_S16SYS;
-    probeDesired.channels = 1;
-    probeDesired.samples = 960;
+    probeDesired.freq = cfg.sampleRate;
+    probeDesired.format = sdlFormat;
+    probeDesired.channels = static_cast<Uint8>(cfg.channels);
+    probeDesired.samples = static_cast<Uint16>(cfg.sampleRate * cfg.frameDurationMs / 1000);
     probeDesired.callback = &MicrophoneCapture::audioCallback;
     probeDesired.userdata = this;
     SDL_AudioSpec probed = {};
     const int probeAllowed = SDL_AUDIO_ALLOW_FREQUENCY_CHANGE |
                              SDL_AUDIO_ALLOW_CHANNELS_CHANGE |
                              SDL_AUDIO_ALLOW_SAMPLES_CHANGE;
+
     SDL_AudioDeviceID probeId = SDL_OpenAudioDevice(selectedDevice, 1,
                                                     &probeDesired, &probed,
                                                     probeAllowed);
@@ -107,34 +139,19 @@ bool MicrophoneCapture::initialize(const std::string& deviceName)
                 probed.freq, probed.channels, probed.format, probed.samples);
     SDL_CloseAudioDevice(probeId);
 
-    // Phase 2: pick an Opus rate. If the device is already at an Opus-supported
-    // rate, encode at that rate so SDL inserts no resampler. Otherwise target
-    // 48 kHz and accept SDL's internal (linear) resample.
-    int opusRate;
-    int allowFreqChange;
-    if (isOpusRate(probed.freq)) {
-        opusRate = probed.freq;
-        allowFreqChange = SDL_AUDIO_ALLOW_FREQUENCY_CHANGE;
-    } else {
-        opusRate = 48000;
-        allowFreqChange = 0;
-    }
-
-    // Opus only handles mono or stereo. Anything more (rare) gets downmixed
-    // by SDL via ALLOW_CHANNELS_CHANGE; the obtained spec must match what
-    // we asked.
-    int opusChannels = (probed.channels >= 2) ? 2 : 1;
-
+    // Phase 2: open the device at the exact format negotiated with the host.
+    // We do not allow SDL to change the format or channel count because the
+    // wire format is fixed. Only sample count per callback is allowed to vary.
     SDL_AudioSpec desired = {};
-    desired.freq = opusRate;
-    desired.format = AUDIO_S16SYS;
-    desired.channels = static_cast<Uint8>(opusChannels);
-    desired.samples = static_cast<Uint16>((opusRate * 20) / 1000);
+    desired.freq = cfg.sampleRate;
+    desired.format = sdlFormat;
+    desired.channels = static_cast<Uint8>(cfg.channels);
+    desired.samples = static_cast<Uint16>(cfg.sampleRate * cfg.frameDurationMs / 1000);
     desired.callback = &MicrophoneCapture::audioCallback;
     desired.userdata = this;
 
-    const int allowedChanges = allowFreqChange | SDL_AUDIO_ALLOW_SAMPLES_CHANGE;
-    m_DeviceId = SDL_OpenAudioDevice(selectedDevice, 1, &desired, &m_ObtainedSpec, allowedChanges);
+    m_DeviceId = SDL_OpenAudioDevice(selectedDevice, 1, &desired, &m_ObtainedSpec,
+                                     SDL_AUDIO_ALLOW_SAMPLES_CHANGE);
     if (m_DeviceId == 0) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                     "SDL_OpenAudioDevice() failed for microphone capture: %s",
@@ -142,71 +159,40 @@ bool MicrophoneCapture::initialize(const std::string& deviceName)
         return false;
     }
 
-    if (m_ObtainedSpec.format != AUDIO_S16SYS ||
-            m_ObtainedSpec.freq != opusRate ||
-            m_ObtainedSpec.channels != opusChannels) {
+    // Validate that SDL gave us exactly the format and channels we asked for.
+    if (m_ObtainedSpec.format != sdlFormat ||
+            m_ObtainedSpec.freq != cfg.sampleRate ||
+            m_ObtainedSpec.channels != static_cast<Uint8>(cfg.channels)) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                    "Microphone capture format mismatch: got %d Hz, %d channels, format 0x%x; wanted %d Hz, %d channels",
+                    "Microphone capture format mismatch: got %d Hz, %d channels, format 0x%x; "
+                    "wanted %d Hz, %d channels, format 0x%x",
                     m_ObtainedSpec.freq, m_ObtainedSpec.channels, m_ObtainedSpec.format,
-                    opusRate, opusChannels);
+                    cfg.sampleRate, cfg.channels, (unsigned)sdlFormat);
         SDL_CloseAudioDevice(m_DeviceId);
         m_DeviceId = 0;
         return false;
     }
 
-    m_OpusRate = opusRate;
-    m_OpusChannels = opusChannels;
-    m_FrameSize = (m_OpusRate * 20) / 1000;
-
-    int opusError = OPUS_OK;
-    m_Encoder = opus_encoder_create(m_OpusRate, m_OpusChannels,
-                                    OPUS_APPLICATION_AUDIO, &opusError);
-    if (m_Encoder == nullptr || opusError != OPUS_OK) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                    "opus_encoder_create() failed for microphone capture: %s",
-                    opus_strerror(opusError));
-        SDL_CloseAudioDevice(m_DeviceId);
-        m_DeviceId = 0;
-        return false;
-    }
-
-    // Bitrate scales with channel count. 96 kbps mono is high-quality voice;
-    // 160 kbps stereo gives equivalent per-channel headroom. Both leave plenty
-    // of room for fullband (20 kHz) content.
-    const int bitrate = (m_OpusChannels == 2) ? 160000 : 96000;
-
-    opus_encoder_ctl(m_Encoder, OPUS_SET_BITRATE(bitrate));
-    opus_encoder_ctl(m_Encoder, OPUS_SET_VBR(1));
-    opus_encoder_ctl(m_Encoder, OPUS_SET_COMPLEXITY(10));
-    // OPUS_AUTO lets the encoder pick speech-vs-music heuristics per frame
-    // instead of the previous OPUS_SIGNAL_VOICE lock-in (which combined with
-    // OPUS_APPLICATION_VOIP was double-biased toward narrow speech mode).
-    opus_encoder_ctl(m_Encoder, OPUS_SET_SIGNAL(OPUS_AUTO));
-    // Without this, Opus is free to downgrade to wideband (8 kHz cutoff) at
-    // lower bitrates, which is the most likely cause of the muffled-mic
-    // complaint on the previous setup.
-    opus_encoder_ctl(m_Encoder, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_FULLBAND));
-    opus_encoder_ctl(m_Encoder, OPUS_SET_LSB_DEPTH(16));
-    opus_encoder_ctl(m_Encoder, OPUS_SET_DTX(0));
-    // FEC + a non-zero PACKET_LOSS_PERC tax the audio bit budget for
-    // redundancy. On a Thunderbolt direct link there's no loss to recover
-    // from, so we keep the bits for fidelity.
-    opus_encoder_ctl(m_Encoder, OPUS_SET_INBAND_FEC(0));
-    opus_encoder_ctl(m_Encoder, OPUS_SET_PACKET_LOSS_PERC(0));
-    opus_encoder_ctl(m_Encoder, OPUS_SET_EXPERT_FRAME_DURATION(OPUS_FRAMESIZE_20_MS));
+    m_SampleRate     = cfg.sampleRate;
+    m_Channels       = cfg.channels;
+    m_BytesPerSample = bytesPerSample;
+    m_SampleFormatId = cfg.sampleFormatId;
+    m_WireFrameSamples = cfg.sampleRate * cfg.frameDurationMs / 1000;
+    m_FrameDurationMs  = cfg.frameDurationMs;
 
     SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                "Microphone capture: device='%s'; SDL %d Hz / %d ch / %d samples per cb; "
-                "Opus %d Hz / %d ch / %d kbps fullband, FEC off, no preemptive loss; resample=%s",
+                "Microphone capture: device='%s'; %d Hz / %d ch / %d-bit (fmt %d) / %d ms frames "
+                "(%d samples, %d bytes/frame)",
                 selectedDevice ? selectedDevice : "<default>",
-                m_ObtainedSpec.freq, m_ObtainedSpec.channels, m_ObtainedSpec.samples,
-                m_OpusRate, m_OpusChannels, bitrate / 1000,
-                (probed.freq == m_OpusRate) ? "none" : "SDL");
+                m_SampleRate, m_Channels, cfg.bitsPerSample, m_SampleFormatId,
+                m_FrameDurationMs, m_WireFrameSamples,
+                m_WireFrameSamples * m_Channels * m_BytesPerSample);
 
     SDL_PauseAudioDevice(m_DeviceId, 1);
-    m_SampleBuffer.reserve(static_cast<size_t>(m_FrameSize) * m_OpusChannels * 4);
-    m_StopEncoderThread.store(false, std::memory_order_release);
-    m_EncoderThread = std::thread(&MicrophoneCapture::encoderLoop, this);
+    const int wireFrameBytes = m_WireFrameSamples * m_Channels * m_BytesPerSample;
+    m_SampleBuffer.reserve(static_cast<size_t>(wireFrameBytes) * 12);
+    m_StopSenderThread.store(false, std::memory_order_release);
+    m_SenderThread = std::thread(&MicrophoneCapture::senderLoop, this);
     m_Initialized = true;
     return true;
 }
@@ -270,92 +256,168 @@ void MicrophoneCapture::handleAudioData(const Uint8* stream, int len)
         return;
     }
 
-    const auto* inputSamples = reinterpret_cast<const opus_int16*>(stream);
-    const int valueCount = len / (int)sizeof(opus_int16);
+    const int wireFrameBytes = m_WireFrameSamples * m_Channels * m_BytesPerSample;
+    // ~240 ms ceiling: 12 wire frames max.
+    const size_t maxBufferedBytes = static_cast<size_t>(wireFrameBytes) * 12;
+    int trimBytes = 0;
 
     {
-        std::lock_guard lock(m_BufferMutex);
-        m_SampleBuffer.insert(m_SampleBuffer.end(), inputSamples, inputSamples + valueCount);
-        // ~240 ms ceiling: drop the OLDEST samples once we exceed it. Buffer
-        // values are interleaved across channels, so the cap scales with
-        // m_OpusChannels.
-        const size_t maxBufferedValues = static_cast<size_t>(m_FrameSize) * m_OpusChannels * 12;
-        if (m_SampleBuffer.size() > maxBufferedValues) {
-            const auto trimValues = m_SampleBuffer.size() - maxBufferedValues;
-            m_SampleBuffer.erase(m_SampleBuffer.begin(), m_SampleBuffer.begin() + trimValues);
+        std::lock_guard<std::mutex> lock(m_BufferMutex);
+        m_SampleBuffer.insert(m_SampleBuffer.end(), stream, stream + len);
+
+        if (m_SampleBuffer.size() > maxBufferedBytes) {
+            const size_t excess = m_SampleBuffer.size() - maxBufferedBytes;
+            m_SampleBuffer.erase(m_SampleBuffer.begin(),
+                                 m_SampleBuffer.begin() + static_cast<std::ptrdiff_t>(excess));
+            // Round trim count to whole frames for stats
+            trimBytes = static_cast<int>(excess);
+            m_StatTrims += (trimBytes + wireFrameBytes - 1) / wireFrameBytes;
+        }
+
+        if (m_SampleBuffer.size() > m_StatBufHwBytes) {
+            m_StatBufHwBytes = m_SampleBuffer.size();
         }
     }
     m_BufferCondition.notify_one();
 }
 
-void MicrophoneCapture::encoderLoop()
+float MicrophoneCapture::computePeak(const uint8_t* data, int byteCount) const
 {
-    // m_FrameSize is samples-per-channel; m_OpusChannels is 1 or 2. The
-    // working buffer is interleaved (L,R,L,R,...) for stereo.
-    const int frameValues = m_FrameSize * m_OpusChannels;
-    std::vector<opus_int16> frame(frameValues);
-    const auto frameDuration = std::chrono::milliseconds((m_FrameSize * 1000) / m_OpusRate);
+    float peak = 0.0f;
+    const int frameCount = byteCount / m_BytesPerSample;
+
+    if (m_SampleFormatId == LI_MIC_FMT_S16LE) {
+        const int16_t* s = reinterpret_cast<const int16_t*>(data);
+        for (int i = 0; i < frameCount; ++i) {
+            float v = static_cast<float>(s[i]) / 32768.0f;
+            float a = std::fabs(v);
+            if (a > peak) { peak = a; }
+        }
+    } else if (m_SampleFormatId == LI_MIC_FMT_S32LE) {
+        const int32_t* s = reinterpret_cast<const int32_t*>(data);
+        for (int i = 0; i < frameCount; ++i) {
+            float v = static_cast<float>(s[i]) / 2147483648.0f;
+            float a = std::fabs(v);
+            if (a > peak) { peak = a; }
+        }
+    } else if (m_SampleFormatId == LI_MIC_FMT_F32LE) {
+        const float* s = reinterpret_cast<const float*>(data);
+        for (int i = 0; i < frameCount; ++i) {
+            float a = std::fabs(s[i]);
+            if (a > peak) { peak = a; }
+        }
+    }
+
+    return peak;
+}
+
+void MicrophoneCapture::senderLoop()
+{
+    const int wireFrameBytes = m_WireFrameSamples * m_Channels * m_BytesPerSample;
+    std::vector<uint8_t> frame(wireFrameBytes);
+    const auto frameDuration = std::chrono::milliseconds(m_FrameDurationMs);
     auto nextSendDeadline = std::chrono::steady_clock::now();
     bool pacingActive = false;
 
+    // Stats accounting
+    auto statsWindowStart = std::chrono::steady_clock::now();
+    int statPkts = 0;
+    int statBytes = 0;
+    float statPeak = 0.0f;
+    size_t statBufHw = 0;
+    int statTrims = 0;
+
     for (;;) {
         {
-            std::unique_lock lock(m_BufferMutex);
-            m_BufferCondition.wait(lock, [this, frameValues] {
-                return m_StopEncoderThread.load(std::memory_order_acquire) ||
+            std::unique_lock<std::mutex> lock(m_BufferMutex);
+            m_BufferCondition.wait(lock, [this, wireFrameBytes] {
+                return m_StopSenderThread.load(std::memory_order_acquire) ||
                        (m_Streaming.load(std::memory_order_acquire) &&
-                        m_SampleBuffer.size() >= (size_t)frameValues);
+                        static_cast<int>(m_SampleBuffer.size()) >= wireFrameBytes);
             });
 
-            if (m_StopEncoderThread.load(std::memory_order_acquire)) {
+            if (m_StopSenderThread.load(std::memory_order_acquire)) {
                 break;
             }
 
             if (!m_Streaming.load(std::memory_order_acquire) ||
-                    m_SampleBuffer.size() < (size_t)frameValues) {
+                    static_cast<int>(m_SampleBuffer.size()) < wireFrameBytes) {
                 pacingActive = false;
                 continue;
             }
 
-            std::copy_n(m_SampleBuffer.begin(), frameValues, frame.begin());
-            m_SampleBuffer.erase(m_SampleBuffer.begin(), m_SampleBuffer.begin() + frameValues);
+            std::copy_n(m_SampleBuffer.begin(), wireFrameBytes, frame.begin());
+            m_SampleBuffer.erase(m_SampleBuffer.begin(),
+                                 m_SampleBuffer.begin() + wireFrameBytes);
+
+            if (m_SampleBuffer.size() > statBufHw) {
+                statBufHw = m_SampleBuffer.size();
+            }
+            statTrims += m_StatTrims;
+            m_StatTrims = 0;
         }
 
         const auto now = std::chrono::steady_clock::now();
         if (!pacingActive) {
             nextSendDeadline = now;
             pacingActive = true;
-        }
-        else if (now > nextSendDeadline + (frameDuration * 2)) {
-            // Re-sync the pacing clock after a long capture gap to avoid compounding stale latency.
+        } else if (now > nextSendDeadline + (frameDuration * 2)) {
             nextSendDeadline = now;
         }
 
         if (nextSendDeadline > now) {
             std::this_thread::sleep_until(nextSendDeadline);
         }
-
         nextSendDeadline += frameDuration;
 
-        int encodedBytes = opus_encode(m_Encoder,
-                                       frame.data(),
-                                       m_FrameSize,
-                                       m_EncodedPacket.data(),
-                                       (opus_int32)m_EncodedPacket.size());
-        if (encodedBytes <= 0) {
-            continue;
+        float framePeak = computePeak(frame.data(), wireFrameBytes);
+        if (framePeak > statPeak) { statPeak = framePeak; }
+
+        int sendResult = LiSendMicrophonePcmData(frame.data(), wireFrameBytes,
+                                                  static_cast<uint32_t>(m_WireFrameSamples));
+        if (sendResult >= 0) {
+            ++statPkts;
+            statBytes += wireFrameBytes;
+
+            if (!m_FirstPacketLogged) {
+                m_FirstPacketLogged = true;
+                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                            "Sent first client microphone PCM packet (%d bytes raw)",
+                            wireFrameBytes);
+            }
+        } else {
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                        "LiSendMicrophonePcmData() failed for microphone capture");
         }
 
-        int sendResult = LiSendMicrophoneOpusDataEx(m_EncodedPacket.data(), encodedBytes, m_FrameSize);
-        if (sendResult >= 0 && !m_FirstPacketLogged) {
-            m_FirstPacketLogged = true;
+        // Per-second stats log
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - statsWindowStart).count();
+        if (elapsed >= 1000) {
+            const double dbfs = (statPeak > 0.0f)
+                ? 20.0 * std::log10(static_cast<double>(statPeak))
+                : -std::numeric_limits<double>::infinity();
+            const double kbps = (elapsed > 0)
+                ? static_cast<double>(statBytes) * 8.0 / static_cast<double>(elapsed)
+                : 0.0;
+            const size_t bufMs = (m_SampleRate > 0 && m_Channels > 0 && m_BytesPerSample > 0)
+                ? statBufHw * 1000 / (static_cast<size_t>(m_SampleRate) * m_Channels * m_BytesPerSample)
+                : 0;
+
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Sent first client microphone packet (%d bytes Opus)",
-                        encodedBytes);
-        }
-        else if (sendResult < 0) {
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                        "LiSendMicrophoneOpusDataEx() failed for microphone capture");
+                        "Mic stats[1s]: peak=%.1fdBFS, sent=%d pkts (%.0f kbps avg), "
+                        "buf-hw=%zu values (%zu ms), trims=%d",
+                        dbfs, statPkts, kbps,
+                        statBufHw / static_cast<size_t>(m_BytesPerSample),
+                        bufMs,
+                        statTrims);
+
+            statPkts  = 0;
+            statBytes = 0;
+            statPeak  = 0.0f;
+            statBufHw = 0;
+            statTrims = 0;
+            statsWindowStart = std::chrono::steady_clock::now();
         }
     }
 }
@@ -363,7 +425,7 @@ void MicrophoneCapture::encoderLoop()
 void MicrophoneCapture::clearBufferedSamples()
 {
     {
-        std::lock_guard lock(m_BufferMutex);
+        std::lock_guard<std::mutex> lock(m_BufferMutex);
         m_SampleBuffer.clear();
     }
 }

@@ -2,15 +2,14 @@
 
 #include <QObject>
 #include <atomic>
-#include <array>
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include <SDL.h>
-#include <opus.h>
 
 class MicrophoneCapture : public QObject
 {
@@ -32,28 +31,39 @@ private:
     static void audioCallback(void* userdata, Uint8* stream, int len);
     void handleAudioData(const Uint8* stream, int len);
     void clearBufferedSamples();
-    void encoderLoop();
+    void senderLoop();
+
+    // Returns the peak absolute level in the range [0.0, 1.0] over
+    // the provided interleaved sample buffer. Handles any configured format.
+    float computePeak(const uint8_t* data, int byteCount) const;
 
     SDL_AudioDeviceID m_DeviceId;
     SDL_AudioSpec m_ObtainedSpec;
-    OpusEncoder* m_Encoder;
-    std::vector<opus_int16> m_SampleBuffer;
-    std::array<unsigned char, 1400> m_EncodedPacket;
+
+    // Negotiated from host SDP
+    int m_SampleRate;
+    int m_Channels;
+    int m_BytesPerSample;
+    int m_SampleFormatId;
+    int m_WireFrameSamples;   // samples-per-channel per sent frame
+    int m_FrameDurationMs;
+
+    // Raw byte sample ring buffer (interleaved samples, any bit depth)
+    std::vector<uint8_t> m_SampleBuffer;
+
     std::atomic_bool m_Streaming;
-    std::atomic_bool m_StopEncoderThread;
+    std::atomic_bool m_StopSenderThread;
     bool m_Initialized;
     bool m_Enabled;
     bool m_FirstPacketLogged;
     std::mutex m_BufferMutex;
     std::condition_variable m_BufferCondition;
-    std::thread m_EncoderThread;
+    std::thread m_SenderThread;
 
-    // Negotiated at runtime from the device's native config. Opus accepts
-    // only 8/12/16/24/48 kHz mono or stereo, so when the device's native
-    // rate is one of those, we encode at it directly (no resample). For
-    // any other native rate (e.g. 44.1 kHz on most macOS built-in mics)
-    // we fall back to 48 kHz and let SDL resample.
-    int m_OpusRate;
-    int m_OpusChannels;
-    int m_FrameSize;     // samples per channel for one 20 ms Opus frame
+    // Per-second stats
+    int m_StatPktsSent;
+    int m_StatBytesSent;
+    size_t m_StatBufHwBytes;
+    int m_StatTrims;
+    float m_StatPeakThisSec;
 };
