@@ -12,7 +12,7 @@ You can follow development on our [Discord server](https://moonlight-stream.org/
 
 ## About This Fork
 
-This is a fork of [moonlight-stream/moonlight-qt](https://github.com/moonlight-stream/moonlight-qt). It pairs with the [Toukaya/Apollo](https://github.com/Toukaya/Apollo) host fork (a Sunshine derivative). The shared `moonlight-common-c` submodule lives at [Toukaya/moonlight-common-c](https://github.com/Toukaya/moonlight-common-c) on branch `feat/mic-pcm`.
+This is a fork of [moonlight-stream/moonlight-qt](https://github.com/moonlight-stream/moonlight-qt) (with feature ports from [ClassicOldSong/moonlight-android (artemis)](https://github.com/ClassicOldSong/moonlight-android)) maintained on the [Toukaya](https://github.com/Toukaya) account. It pairs with the [Toukaya/Apollo](https://github.com/Toukaya/Apollo) host fork (a Sunshine derivative). Both projects share the same `moonlight-common-c` submodule at [Toukaya/moonlight-common-c](https://github.com/Toukaya/moonlight-common-c) on branch `feat/mic-pcm`, so client and host build against an identical SHA and stay in lock-step on the wire protocol.
 
 The fork adds the following features on top of upstream moonlight-qt:
 
