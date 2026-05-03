@@ -2,6 +2,8 @@
 #include "settings/streamingpreferences.h"
 #include "streaming/streamutils.h"
 #include "backend/richpresencemanager.h"
+#include "backend/clipboardmanager.h"
+#include "backend/nvhttp.h"
 #include "streaming/audio/capture/microphonecapture.h"
 
 #include <Limelight.h>
@@ -570,7 +572,9 @@ Session::Session(NvComputer* computer, NvApp& app, StreamingPreferences *prefere
       m_AudioSampleCount(0),
       m_DropAudioEndTime(0),
       m_MicrophoneCapture(nullptr),
-      m_MicrophoneEnabled(false)
+      m_MicrophoneEnabled(false),
+      m_ClipboardManager(ClipboardManager::instance()),
+      m_ClipboardHttp(nullptr)
 {
 }
 
@@ -956,6 +960,13 @@ bool Session::initialize(QQuickWindow* qtWindow)
         return false;
     }
 
+    // Wire ClipboardManager to a fresh NvHTTP for /actions/clipboard.
+    // Session owns m_ClipboardHttp; cleanup happens in DeferredSessionCleanupTask.
+    if (m_ClipboardManager) {
+        m_ClipboardHttp = new NvHTTP(m_Computer);
+        m_ClipboardManager->setConnection(m_Computer, m_ClipboardHttp);
+    }
+
     return true;
 }
 
@@ -1286,6 +1297,17 @@ private:
         // try to interact with APIs that can only be called between
         // LiStartConnection() and LiStopConnection().
         SDL_assert(m_Session->m_VideoDecoder == nullptr);
+
+        // Disconnect ClipboardManager and free Session-owned NvHTTP. The
+        // ClipboardManager singleton outlives Session; only the http client
+        // and its connection reference are released here.
+        if (m_Session->m_ClipboardManager) {
+            m_Session->m_ClipboardManager->disconnect();
+        }
+        if (m_Session->m_ClipboardHttp) {
+            delete m_Session->m_ClipboardHttp;
+            m_Session->m_ClipboardHttp = nullptr;
+        }
 
         // Finish cleanup of the connection state
         LiStopConnection();
@@ -2093,6 +2115,9 @@ void Session::exec()
                     m_AudioMuted = true;
                 }
                 m_InputHandler->notifyFocusLost();
+                if (m_ClipboardManager) {
+                    m_ClipboardManager->onFocusLost();
+                }
                 break;
             case SDL_WINDOWEVENT_FOCUS_GAINED:
                 if (m_Preferences->muteOnFocusLoss) {

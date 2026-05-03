@@ -12,6 +12,8 @@
 #include "video/overlaymanager.h"
 
 class MicrophoneCapture;
+class ClipboardManager;
+class NvHTTP;
 
 class SupportedVideoFormatList : public QList<int>
 {
@@ -285,6 +287,12 @@ private:
     Uint32 m_DropAudioEndTime;
     MicrophoneCapture* m_MicrophoneCapture;
     bool m_MicrophoneEnabled;
+
+    // ClipboardManager is a process-wide singleton (ClipboardManager::s_instance);
+    // Session holds a non-owning pointer. Do NOT delete this in the destructor.
+    ClipboardManager* m_ClipboardManager;
+    // Owned by Session; passed to ClipboardManager::setConnection during initialize().
+    NvHTTP* m_ClipboardHttp;
 
     Overlay::OverlayManager m_OverlayManager;
 

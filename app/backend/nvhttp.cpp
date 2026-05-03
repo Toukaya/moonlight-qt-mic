@@ -556,3 +556,72 @@ NvHTTP::openConnection(QUrl baseUrl,
 
     return reply;
 }
+
+// Clipboard sync (Apollo/Sunshine /actions/clipboard endpoint).
+// Ported from wjbeckett/artemis (GPL).
+QString
+NvHTTP::getClipboardContent()
+{
+    try {
+        QString response = openConnectionToString(m_BaseUrlHttps,
+                                                  "actions/clipboard",
+                                                  "type=text",
+                                                  REQUEST_TIMEOUT_MS,
+                                                  NvLogLevel::NVLL_VERBOSE);
+        return response;
+    }
+    catch (const GfeHttpResponseException& e) {
+        qWarning() << "NvHTTP: Failed to get clipboard content:" << e.getStatusMessage();
+        return QString();
+    }
+    catch (const QtNetworkReplyException& e) {
+        qWarning() << "NvHTTP: Network error getting clipboard:" << e.getErrorText();
+        return QString();
+    }
+}
+
+bool
+NvHTTP::sendClipboardContent(const QString& content)
+{
+    QUrl url(m_BaseUrlHttps);
+    url.setPath("/actions/clipboard");
+    url.setQuery("type=text");
+
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "text/plain; charset=utf-8");
+    request.setSslConfiguration(IdentityManager::get()->getSslConfig());
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
+#endif
+
+    QNetworkReply* reply = m_Nam->post(request, content.toUtf8());
+
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QObject::connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, &loop, &QEventLoop::quit);
+    QTimer::singleShot(REQUEST_TIMEOUT_MS, &loop, &QEventLoop::quit);
+    loop.exec(QEventLoop::ExcludeUserInputEvents);
+
+    if (!reply->isFinished()) {
+        qWarning() << "NvHTTP: Clipboard send request timed out";
+        reply->abort();
+        delete reply;
+        return false;
+    }
+
+    if (reply->error() != QNetworkReply::NoError) {
+        qWarning() << "NvHTTP: Failed to send clipboard content:" << reply->errorString();
+        delete reply;
+        return false;
+    }
+
+    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    delete reply;
+
+    if (statusCode == 200) {
+        return true;
+    }
+    qWarning() << "NvHTTP: Server returned error status:" << statusCode;
+    return false;
+}

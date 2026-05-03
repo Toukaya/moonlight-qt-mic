@@ -1856,5 +1856,10 @@ Flickable {
                 }
             }
         }
+
+        ClipboardSettings {
+            id: clipboardSettings
+            width: (parent.width - (parent.leftPadding + parent.rightPadding))
+        }
     }
 }

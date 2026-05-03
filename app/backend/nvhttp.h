@@ -178,6 +178,13 @@ public:
     QImage
     getBoxArt(int appId);
 
+    // Clipboard sync endpoints (Apollo/Sunshine servers only)
+    QString
+    getClipboardContent();
+
+    bool
+    sendClipboardContent(const QString& content);
+
     static
     QVector<NvDisplayMode>
     getDisplayModeList(QString serverInfo);

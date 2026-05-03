@@ -48,8 +48,10 @@
 #include "gui/computermodel.h"
 #include "gui/appmodel.h"
 #include "backend/autoupdatechecker.h"
+#include "backend/clipboardmanager.h"
 #include "backend/computermanager.h"
 #include "backend/systemproperties.h"
+#include "settings/artemissettings.h"
 #include "streaming/session.h"
 #include "settings/streamingpreferences.h"
 #include "gui/sdlgamepadkeynavigation.h"
@@ -900,6 +902,12 @@ int main(int argc, char *argv[])
                                                    [](QQmlEngine* qmlEngine, QJSEngine*) -> QObject* {
                                                        return StreamingPreferences::get(qmlEngine);
                                                    });
+    qmlRegisterSingletonType<ClipboardManager>("ClipboardManager", 1, 0,
+                                               "ClipboardManager",
+                                               &ClipboardManager::qmlInstance);
+    qmlRegisterSingletonType<ArtemisSettings>("ArtemisSettings", 1, 0,
+                                              "ArtemisSettings",
+                                              &ArtemisSettings::qmlInstance);
 
     // Create the identity manager on the main thread
     IdentityManager::get();
