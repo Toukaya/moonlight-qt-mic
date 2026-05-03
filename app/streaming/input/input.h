@@ -223,6 +223,7 @@ private:
     QString m_OldIgnoreDevicesExcept;
     QStringList m_IgnoreDeviceGuids;
     StreamingPreferences::CaptureSysKeysMode m_CaptureSystemKeysMode;
+    bool m_MacKeyboardRemapEnabled;
     int m_MouseCursorCapturedVisibilityState;
 
     struct {

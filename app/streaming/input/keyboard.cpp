@@ -212,10 +212,12 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
     modifiers = 0;
     if (event->keysym.mod & KMOD_CTRL) {
 #ifdef Q_OS_MACOS
-        // Mac Control → Win key (Meta). Gated by capture so single-press of
-        // Mac Control in non-capture mode does not pop the Start menu.
-        if (isSystemKeyCaptureActive()) {
+        if (m_MacKeyboardRemapEnabled) {
+            // Mac Control → Win key (Meta). Unconditional — SDL keyboard-grab
+            // is unreliable on macOS so do not gate by isSystemKeyCaptureActive.
             modifiers |= MODIFIER_META;
+        } else {
+            modifiers |= MODIFIER_CTRL;
         }
 #else
         modifiers |= MODIFIER_CTRL;
@@ -228,14 +230,18 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
         modifiers |= MODIFIER_SHIFT;
     }
     if (event->keysym.mod & KMOD_GUI) {
-        if (isSystemKeyCaptureActive()) {
 #ifdef Q_OS_MACOS
-            // Treat Mac Cmd as host Ctrl so Cmd+C/V/X/Z/A/F/S work on Win.
+        if (m_MacKeyboardRemapEnabled) {
+            // Mac Cmd → host Ctrl so Cmd+C/V/X/Z/A/F/S work on Win.
             modifiers |= MODIFIER_CTRL;
-#else
+        } else if (isSystemKeyCaptureActive()) {
             modifiers |= MODIFIER_META;
-#endif
         }
+#else
+        if (isSystemKeyCaptureActive()) {
+            modifiers |= MODIFIER_META;
+        }
+#endif
     }
 
     // Set keycode. We explicitly use scancode here because GFE will try to correct
@@ -367,20 +373,22 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                 break;
             case SDL_SCANCODE_LCTRL:
 #ifdef Q_OS_MACOS
-                if (!isSystemKeyCaptureActive()) {
-                    return;
+                if (m_MacKeyboardRemapEnabled) {
+                    keyCode = 0x5B; // VK_LWIN — Mac Control sent as Win key
+                } else {
+                    keyCode = 0xA2; // VK_LCONTROL — pass-through
                 }
-                keyCode = 0x5B; // VK_LWIN — Mac Control sent as Win key
 #else
                 keyCode = 0xA2; // VK_LCONTROL
 #endif
                 break;
             case SDL_SCANCODE_RCTRL:
 #ifdef Q_OS_MACOS
-                if (!isSystemKeyCaptureActive()) {
-                    return;
+                if (m_MacKeyboardRemapEnabled) {
+                    keyCode = 0x5C; // VK_RWIN
+                } else {
+                    keyCode = 0xA3; // VK_RCONTROL
                 }
-                keyCode = 0x5C; // VK_RWIN
 #else
                 keyCode = 0xA3; // VK_RCONTROL
 #endif
@@ -392,22 +400,36 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                 keyCode = 0xA5;
                 break;
             case SDL_SCANCODE_LGUI:
+#ifdef Q_OS_MACOS
+                if (m_MacKeyboardRemapEnabled) {
+                    keyCode = 0xA2; // VK_LCONTROL — Mac Cmd sent as Win Ctrl
+                } else {
+                    if (!isSystemKeyCaptureActive()) {
+                        return;
+                    }
+                    keyCode = 0x5B; // VK_LWIN — pass-through
+                }
+#else
                 if (!isSystemKeyCaptureActive()) {
                     return;
                 }
-#ifdef Q_OS_MACOS
-                keyCode = 0xA2; // VK_LCONTROL — Mac Cmd sent as Win Ctrl
-#else
                 keyCode = 0x5B; // VK_LWIN
 #endif
                 break;
             case SDL_SCANCODE_RGUI:
+#ifdef Q_OS_MACOS
+                if (m_MacKeyboardRemapEnabled) {
+                    keyCode = 0xA3; // VK_RCONTROL
+                } else {
+                    if (!isSystemKeyCaptureActive()) {
+                        return;
+                    }
+                    keyCode = 0x5C; // VK_RWIN — pass-through
+                }
+#else
                 if (!isSystemKeyCaptureActive()) {
                     return;
                 }
-#ifdef Q_OS_MACOS
-                keyCode = 0xA3; // VK_RCONTROL
-#else
                 keyCode = 0x5C; // VK_RWIN
 #endif
                 break;

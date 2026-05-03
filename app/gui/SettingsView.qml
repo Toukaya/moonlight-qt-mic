@@ -1500,6 +1500,25 @@ Flickable {
                 }
 
                 CheckBox {
+                    id: macKeyboardRemapCheck
+                    visible: Qt.platform.os === "osx" || Qt.platform.os === "macos"
+                    hoverEnabled: true
+                    width: parent.width
+                    text: qsTr("Remap Mac modifier keys for the host")
+                    font.pointSize:  12
+                    checked: StreamingPreferences.macKeyboardRemap
+                    onCheckedChanged: {
+                        StreamingPreferences.macKeyboardRemap = checked
+                    }
+
+                    ToolTip.delay: 1000
+                    ToolTip.timeout: 8000
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Sends the Mac Command key as Ctrl and the Mac Control key as the Windows key on the host, so familiar shortcuts like Cmd+C and Ctrl+R work as expected.") + "\n\n" +
+                                  qsTr("NOTE: Takes effect on the next streaming session.")
+                }
+
+                CheckBox {
                     id: absoluteTouchCheck
                     hoverEnabled: true
                     width: parent.width

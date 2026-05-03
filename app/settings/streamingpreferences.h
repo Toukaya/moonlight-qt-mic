@@ -158,6 +158,7 @@ public:
     Q_PROPERTY(bool swapFaceButtons MEMBER swapFaceButtons NOTIFY swapFaceButtonsChanged)
     Q_PROPERTY(bool keepAwake MEMBER keepAwake NOTIFY keepAwakeChanged)
     Q_PROPERTY(CaptureSysKeysMode captureSysKeysMode MEMBER captureSysKeysMode NOTIFY captureSysKeysModeChanged)
+    Q_PROPERTY(bool macKeyboardRemap MEMBER macKeyboardRemap NOTIFY macKeyboardRemapChanged)
     Q_PROPERTY(Language language MEMBER language NOTIFY languageChanged);
 
     Q_INVOKABLE bool retranslate();
@@ -211,6 +212,7 @@ public:
     UIDisplayMode uiDisplayMode;
     Language language;
     CaptureSysKeysMode captureSysKeysMode;
+    bool macKeyboardRemap;
 
 signals:
     void displayModeChanged();
@@ -252,6 +254,7 @@ signals:
     void reverseScrollDirectionChanged();
     void swapFaceButtonsChanged();
     void captureSysKeysModeChanged();
+    void macKeyboardRemapChanged();
     void keepAwakeChanged();
     void languageChanged();
 
