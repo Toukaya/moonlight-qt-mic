@@ -45,9 +45,9 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Moonlight captures your microphone so it can be relayed to the host PC during streaming.</string>
 	<key>CFBundleVersion</key>
-	<string>6.1.0.2</string>
+	<string>6.1.0.3</string>
 	<key>CFBundleShortVersionString</key>
-	<string>6.1.0.2</string>
+	<string>6.1.0.3</string>
 	<key>CFBundleDisplayName</key>
 	<string>Moonlight</string>
     <key>LSApplicationCategoryType</key>
