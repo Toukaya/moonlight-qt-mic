@@ -595,6 +595,20 @@ NvHTTP::sendClipboardContent(const QString& content)
     request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 #endif
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
+    // Mirror openConnection(): force per-request idle timeout so we don't
+    // reuse a cached HTTPS connection (Apollo/Sunshine, like GFE, can choke
+    // on persistent connections).
+    request.setAttribute(QNetworkRequest::ConnectionCacheExpiryTimeoutSecondsAttribute, 0);
+#endif
+
+    // Apollo presents a self-signed pinned certificate. Without wiring the
+    // sslErrors slot the way openConnection() does, Qt aborts the handshake
+    // with QNetworkReply::SslHandshakeFailedError and every POST returns
+    // false. m_Nam->post() bypasses openConnection(), so we must replicate
+    // the connect/disconnect dance here.
+    auto sslErrorsConnection = connect(m_Nam, &QNetworkAccessManager::sslErrors,
+                                       this, &NvHTTP::handleSslErrors);
     QNetworkReply* reply = m_Nam->post(request, content.toUtf8());
 
     QEventLoop loop;
@@ -602,6 +616,11 @@ NvHTTP::sendClipboardContent(const QString& content)
     QObject::connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, &loop, &QEventLoop::quit);
     QTimer::singleShot(REQUEST_TIMEOUT_MS, &loop, &QEventLoop::quit);
     loop.exec(QEventLoop::ExcludeUserInputEvents);
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 3, 0)
+    m_Nam->clearAccessCache();
+#endif
+    disconnect(sslErrorsConnection);
 
     if (!reply->isFinished()) {
         qWarning() << "NvHTTP: Clipboard send request timed out";
