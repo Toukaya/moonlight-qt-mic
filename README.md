@@ -10,6 +10,18 @@ You can follow development on our [Discord server](https://moonlight-stream.org/
  [![Downloads](https://img.shields.io/github/downloads/moonlight-stream/moonlight-qt/total)](https://github.com/moonlight-stream/moonlight-qt/releases)
  [![Translation Status](https://hosted.weblate.org/widgets/moonlight/-/moonlight-qt/svg-badge.svg)](https://hosted.weblate.org/projects/moonlight/moonlight-qt/)
 
+## About This Fork
+
+This is a fork of [moonlight-stream/moonlight-qt](https://github.com/moonlight-stream/moonlight-qt) extended with client-to-host microphone uplink.
+
+The mic stream uses **raw 16-bit little-endian PCM** (default 48 kHz mono, 10 ms wire frames) instead of Opus. The wire format — sample rate, channel count, bit depth, sample format, frame duration — is negotiated via a custom RTSP SDP extension (`a=fmtp:97 x-ml-mic.*` attributes). If the host does not advertise a PCM mic configuration the client refuses to enable mic rather than silently falling back.
+
+This fork pairs with a compatible host implementation. The reference host is [Toukaya/Apollo](https://github.com/Toukaya/Apollo), which receives PCM mic packets and renders them into the Steam Streaming Microphone endpoint on Windows.
+
+The shared moonlight-common-c (containing `LiSendMicrophonePcmData`, `MIC_PACKET_TYPE_PCM = 0x61`, and the new SDP parser additions) lives at [Toukaya/moonlight-common-c](https://github.com/Toukaya/moonlight-common-c) on branch `feat/mic-pcm`, used as the submodule by both this client and the Apollo host.
+
+On macOS the app captures via SDL2 CoreAudio HAL. `Info.plist` carries `NSMicrophoneUsageDescription` so the system displays the TCC microphone-permission prompt the first time the user enables mic.
+
 ## Features
  - Hardware accelerated video decoding on Windows, Mac, and Linux
  - H.264, HEVC, and AV1 codec support (AV1 requires Sunshine and a supported host GPU)
