@@ -982,7 +982,13 @@ bool Session::initialize(QQuickWindow* qtWindow)
         // Render toast messages via the existing SDL-surface status overlay
         // (the same channel used for "Slow connection" warnings). Auto-hides
         // after 3s. Connection auto-disconnects when this Session is destroyed.
+        // Both the success (showToast) and failure (clipboardSyncFailed)
+        // signals are gated by ClipboardManager::shouldShowToast() so the
+        // user's "Show sync notifications" setting suppresses both kinds.
         auto showToastOnOverlay = [this](const QString &msg) {
+            if (!m_ClipboardManager || !m_ClipboardManager->shouldShowToast()) {
+                return;
+            }
             QByteArray utf8 = msg.toUtf8();
             m_OverlayManager.updateOverlayText(Overlay::OverlayStatusUpdate, utf8.constData());
             m_OverlayManager.setOverlayState(Overlay::OverlayStatusUpdate, true);
