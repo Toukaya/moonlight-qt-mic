@@ -149,8 +149,11 @@ win32:!winrt {
 }
 macx {
     !disable-prebuilts {
-        LIBS += -lssl.3 -lcrypto.3 -lavcodec.62 -lavutil.60 -lswscale.9 -lopus -lSDL2 -lSDL2_ttf
-        CONFIG += discord-rpc
+        CONFIG += link_pkgconfig
+        PKGCONFIG += openssl sdl2 SDL2_ttf opus libavcodec libavutil libswscale
+        exists($$PWD/../libs/mac/include/discord_rpc.h) {
+            CONFIG += discord-rpc
+        }
     }
 
     LIBS += -lobjc -framework VideoToolbox -framework AVFoundation -framework CoreVideo -framework CoreGraphics -framework CoreMedia -framework AppKit -framework Metal -framework QuartzCore
