@@ -60,7 +60,7 @@
 // callback runs on the control thread and must not change what is drawn.
 static SeamlessModel* g_SeamlessModel = nullptr;
 
-static void seamlessOnTable(uint8_t seq, uint16_t canvasW, uint16_t canvasH,
+static void seamlessOnTable(uint8_t seq, uint8_t kind, uint16_t canvasW, uint16_t canvasH,
                             int16_t workAreaX, int16_t workAreaY,
                             uint16_t workAreaW, uint16_t workAreaH,
                             const LiSeamlessWindowEntry* entries, int count,
@@ -88,7 +88,7 @@ static void seamlessOnTable(uint8_t seq, uint16_t canvasW, uint16_t canvasH,
         list.append(entry);
     }
 
-    g_SeamlessModel->onTable(seq, canvasW, canvasH, workAreaX, workAreaY,
+    g_SeamlessModel->onTable(seq, kind, canvasW, canvasH, workAreaX, workAreaY,
                              workAreaW, workAreaH, list.constData(), list.size());
 }
 
