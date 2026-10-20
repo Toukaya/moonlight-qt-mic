@@ -73,8 +73,8 @@ Hosting for Moonlight's Debian and L4T package repositories is graciously provid
 ## Building
 
 ### Windows Build Requirements
-* Qt 6.7 SDK or later (earlier versions may work but are not officially supported)
-* [Visual Studio 2022](https://visualstudio.microsoft.com/downloads/) (Community edition is fine)
+* Qt 6.11 SDK or later (earlier versions may work but are not officially supported)
+* [Visual Studio 2026](https://visualstudio.microsoft.com/downloads/) (Community edition is fine)
 * Select **MSVC** option during Qt installation. MinGW is not supported.
 * [7-Zip](https://www.7-zip.org/) (only if building installers for non-development PCs)
 * Graphics Tools (only if running debug builds)
@@ -82,8 +82,8 @@ Hosting for Moonlight's Debian and L4T package repositories is graciously provid
   * Alternatively, run `dism /online /add-capability /capabilityname:Tools.Graphics.DirectX~~~~0.0.1.0` and reboot.
 
 ### macOS Build Requirements
-* Qt 6.7 SDK or later (earlier versions may work but are not officially supported)
-* Xcode 14 or later (earlier versions may work but are not officially supported)
+* Qt 6.11 SDK or later (earlier versions may work but are not officially supported)
+* Xcode 15 or later (earlier versions may work but are not officially supported)
 * [create-dmg](https://github.com/sindresorhus/create-dmg) (only if building DMGs for use on non-development Macs)
 
 ### Linux/Unix Build Requirements
@@ -121,7 +121,10 @@ for different architectures, which handle building deps and extra linking for yo
     * You can install Qt via Homebrew on macOS, but you will need to use `brew install qt --with-debug` to be able to create debug builds of Moonlight.
     * You may also use your Linux distro's package manager for the Qt SDK as long as the packages are Qt 5.12 or later.
     * This step is not required for building on Steam Link, because the Steam Link SDK includes Qt 5.14.
-2. Run `git submodule update --init --recursive` from within `moonlight-qt/`
+2. Download submodules and dependencies
+    * Run `git submodule update --init --recursive` from within `moonlight-qt/`.
+    * On Windows and macOS, you must also run `setup-deps.ps1` (Windows) or `setup-deps.py` (macOS).
+    * Perform these steps each time you pull new changes from the Git repository.
 3. Open the project in Qt Creator or build from qmake on the command line.
     * To build a binary for use on non-development machines, use the scripts in the `scripts` folder.
         * For Windows builds, use `scripts\build-arch.bat` and `scripts\generate-bundle.bat`. Execute these scripts from the root of the repository within a Qt command prompt. Ensure  7-Zip binary directory is on your `%PATH%`.

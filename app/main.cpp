@@ -1,4 +1,5 @@
 #include <QGuiApplication>
+#include <QStyleHints>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QIcon>
@@ -637,8 +638,13 @@ int main(int argc, char *argv[])
     qputenv("QSG_RENDER_LOOP", "basic");
 #endif
 
-#if defined(Q_OS_DARWIN) && defined(QT_DEBUG)
-    // Enable Metal valiation for debug builds
+#if defined(Q_OS_DARWIN) && defined(QT_DEBUG) && !defined(HAVE_LIBPLACEBO_VULKAN)
+    // Enable Metal valiation for debug builds without libplacebo
+    //
+    // The current MoltenVK driver as of Vulkan SDK 1.4.350 triggers Metal debug layer
+    // violations on frame and overlay uploads like:
+    // _validateReplaceRegion:252: failed assertion `Replace Region Validation
+    // bytesPerRow(4803) must be a multiple of MTLPixelFormatBGRA8Unorm pixel bytes(4).
     qputenv("MTL_DEBUG_LAYER", "1");
     qputenv("MTL_SHADER_VALIDATION", "1");
 #endif
@@ -673,9 +679,13 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-#ifdef STEAM_LINK
+#if defined(STEAM_LINK) || defined(Q_OS_WIN32)
     // Steam Link requires that we initialize video before creating our
     // QGuiApplication in order to configure the framebuffer correctly.
+    //
+    // We keep the video subsystem initialized on Windows because it's
+    // much more costly to reinitialize than other platforms. It hurts
+    // the settings page transition performance significantly.
     if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "SDL_InitSubSystem(SDL_INIT_VIDEO) failed: %s",
@@ -711,10 +721,6 @@ int main(int argc, char *argv[])
     SDL_SetHint(SDL_HINT_AUDIO_DEVICE_APP_NAME, "Moonlight");
     SDL_SetHint(SDL_HINT_APP_NAME, "Moonlight");
 
-    // We handle capturing the mouse ourselves when it leaves the window, so we don't need
-    // SDL doing it for us behind our backs.
-    SDL_SetHint(SDL_HINT_MOUSE_AUTO_CAPTURE, "0");
-
     // SDL will try to lock the mouse cursor on Wayland if it's not visible in order to
     // support applications that assume they can warp the cursor (which isn't possible
     // on Wayland). We don't want this behavior because it interferes with seamless mouse
@@ -737,7 +743,30 @@ int main(int argc, char *argv[])
     // use this functionality and it can cause hangs when querying broken devices.
     SDL_SetHint("SDL_WINDOWS_DETECT_DEVICE_HOTPLUG", "0");
 
+    // SDL3 supports offloading scaling to the Wayland compositor, which we take
+    // advantage of in the GL_IS_SLOW case to help fillrate-limited GPUs. To stay
+    // consistent with our own scaling logic, we need aspect ratio scaling which
+    // KDE doesn't currently handle properly. As a compromise, we'll just enable
+    // aspect ratio scaling in non-KDE environments.
+    //
+    // NB: We do not force SDL_VIDEO_WAYLAND_MODE_SCALING to "stretch" on KDE,
+    // because SDL 3.6 has a workaround for KDE and switches the default to
+    // "aspect" for all desktops.
+    if (!qgetenv("XDG_CURRENT_DESKTOP").contains("KDE")) {
+        SDL_SetHint("SDL_VIDEO_WAYLAND_MODE_SCALING", "aspect");
+    }
+
     QGuiApplication app(argc, argv);
+
+#ifdef Q_OS_DARWIN
+    // macOS defaults "Keyboard navigation" to text fields and lists only, which
+    // prevents Tab (and the gamepad navigation that synthesizes it) from moving
+    // focus between non-text controls on the settings page. Force Tab to reach
+    // all controls so keyboard and gamepad UI navigation work without requiring
+    // the user to enable a system accessibility setting. Other platforms already
+    // default to this behavior.
+    app.styleHints()->setTabFocusBehavior(Qt::TabFocusAllControls);
+#endif
 
 #ifdef Q_OS_UNIX
     // Register signal handlers to arbitrate between SDL and Qt.
@@ -799,6 +828,36 @@ int main(int argc, char *argv[])
     SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                 "Running with SDL %d.%d.%d",
                 runtimeVersion.major, runtimeVersion.minor, runtimeVersion.patch);
+
+    // If we're running under sdl2-compat, it may tell us the underlying SDL3 version
+    const char* sdl3Version = SDL_GetHint("SDL3_VERSION");
+    int sdl3VersionInt = 0;
+    if (sdl3Version) {
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "SDL3 version: %s",
+                    sdl3Version);
+
+        // Parse the version into integer form
+        QStringList list = QString(sdl3Version).split('.');
+        Q_ASSERT(list.size() == 3);
+        if (list.size() == 3) {
+            sdl3VersionInt = SDL_VERSIONNUM(list.at(0).toInt(), list.at(1).toInt(), list.at(2).toInt());
+        }
+    }
+
+    // SDL 3.4.0 and 3.4.2 have bugs in atomic KMSDRM support that break us,
+    // so disable atomic on the affected SDL3 versions. Since not all versions
+    // of sdl2-compat will set the SDL3_VERSION hint, we assume that versions
+    // prior to 2.32.66 are affected (since that was released at the same time
+    // as SDL 3.4.4 with the atomic fixes).
+    if ((sdl3VersionInt != 0 && sdl3VersionInt < SDL_VERSIONNUM(3, 4, 4)) ||
+            (runtimeVersion.patch >= 50 && runtimeVersion.patch < 66)) {
+#if !defined(Q_OS_WIN32) && !defined(Q_OS_DARWIN)
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "Setting SDL_KMSDRM_ATOMIC=0 for older sdl2-compat/SDL3 version");
+        SDL_SetHint("SDL_KMSDRM_ATOMIC", "0");
+#endif
+    }
 
     // Apply the initial translation based on user preference
     StreamingPreferences::get()->retranslate();

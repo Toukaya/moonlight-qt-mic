@@ -13,6 +13,15 @@
 #define VK_NUMPAD0 0x60
 #endif
 
+#define MAKE_KEYPRESS_STATE(code, modifiers, flags) \
+    ((uint32_t)(uint16_t)(code) | \
+    ((uint32_t)(uint8_t)((modifiers) & MODIFIER_EXTENDED) << 16) | \
+    ((uint32_t)(uint8_t)(flags) << 24))
+
+#define GET_KEYPRESS_CODE(x) ((short)((x) & 0xFFFF))
+#define GET_KEYPRESS_EXTENDED_MODIFIER(x) ((char)(((x) >> 16) & 0xFF))
+#define GET_KEYPRESS_FLAGS(x) ((char)(((x) >> 24) & 0xFF))
+
 void SdlInputHandler::performSpecialKeyCombo(KeyCombo combo)
 {
     switch (combo) {
@@ -160,6 +169,21 @@ void SdlInputHandler::performSpecialKeyCombo(KeyCombo combo)
         }
         break;
 
+    case KeyComboToggleKeyboardGrab:
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "Detected keyboard grab toggle combo");
+
+        // Toggle the system key capture mode
+        if (isSystemKeyCaptureActive()) {
+            m_CaptureSystemKeysMode = StreamingPreferences::CSK_OFF;
+        }
+        else {
+            m_CaptureSystemKeysMode = StreamingPreferences::CSK_ALWAYS;
+        }
+
+        updateKeyboardGrabState();
+        break;
+
     default:
         Q_UNREACHABLE();
     }
@@ -169,6 +193,7 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
 {
     short keyCode;
     char modifiers;
+    char flags;
     bool shouldNotConvertToScanCodeOnServer = false;
 
     if (event->repeat) {
@@ -275,7 +300,9 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
             case SDL_SCANCODE_CLEAR:
                 keyCode = 0x0C;
                 break;
-            case SDL_SCANCODE_KP_ENTER: // FIXME: Is this correct?
+            case SDL_SCANCODE_KP_ENTER:
+                modifiers |= MODIFIER_EXTENDED;
+                Q_FALLTHROUGH();
             case SDL_SCANCODE_RETURN:
                 keyCode = 0x0D;
                 break;
@@ -293,27 +320,35 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                 break;
             case SDL_SCANCODE_PAGEUP:
                 keyCode = 0x21;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_PAGEDOWN:
                 keyCode = 0x22;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_END:
                 keyCode = 0x23;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_HOME:
                 keyCode = 0x24;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_LEFT:
                 keyCode = 0x25;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_UP:
                 keyCode = 0x26;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_RIGHT:
                 keyCode = 0x27;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_DOWN:
                 keyCode = 0x28;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_SELECT:
                 keyCode = 0x29;
@@ -323,12 +358,15 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                 break;
             case SDL_SCANCODE_PRINTSCREEN:
                 keyCode = 0x2C;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_INSERT:
                 keyCode = 0x2D;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_DELETE:
                 keyCode = 0x2E;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_HELP:
                 keyCode = 0x2F;
@@ -358,6 +396,7 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                 break;
             case SDL_SCANCODE_KP_DIVIDE:
                 keyCode = 0x6F;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_NUMLOCKCLEAR:
                 keyCode = 0x90;
@@ -392,12 +431,14 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
 #else
                 keyCode = 0xA3; // VK_RCONTROL
 #endif
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_LALT:
                 keyCode = 0xA4;
                 break;
             case SDL_SCANCODE_RALT:
                 keyCode = 0xA5;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_LGUI:
 #ifdef Q_OS_MACOS
@@ -408,12 +449,14 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                         return;
                     }
                     keyCode = 0x5B; // VK_LWIN — pass-through
+                    modifiers |= MODIFIER_EXTENDED;
                 }
 #else
                 if (!isSystemKeyCaptureActive()) {
                     return;
                 }
                 keyCode = 0x5B; // VK_LWIN
+                modifiers |= MODIFIER_EXTENDED;
 #endif
                 break;
             case SDL_SCANCODE_RGUI:
@@ -425,37 +468,47 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
                         return;
                     }
                     keyCode = 0x5C; // VK_RWIN — pass-through
+                    modifiers |= MODIFIER_EXTENDED;
                 }
 #else
                 if (!isSystemKeyCaptureActive()) {
                     return;
                 }
                 keyCode = 0x5C; // VK_RWIN
+                modifiers |= MODIFIER_EXTENDED;
 #endif
                 break;
             case SDL_SCANCODE_APPLICATION:
                 keyCode = 0x5D;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_AC_BACK:
                 keyCode = 0xA6;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_AC_FORWARD:
                 keyCode = 0xA7;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_AC_REFRESH:
                 keyCode = 0xA8;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_AC_STOP:
                 keyCode = 0xA9;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_AC_SEARCH:
                 keyCode = 0xAA;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_AC_BOOKMARKS:
                 keyCode = 0xAB;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_AC_HOME:
                 keyCode = 0xAC;
+                modifiers |= MODIFIER_EXTENDED;
                 break;
             case SDL_SCANCODE_SEMICOLON:
                 keyCode = 0xBA;
@@ -513,17 +566,40 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
         }
     }
 
+    keyCode |= 0x8000;
+    flags = shouldNotConvertToScanCodeOnServer ? SS_KBE_FLAG_NON_NORMALIZED : 0;
+
     // Track the key state so we always know which keys are down
     if (event->state == SDL_PRESSED) {
-        m_KeysDown.insert(keyCode);
+        m_KeysDown.insert(MAKE_KEYPRESS_STATE(keyCode, modifiers, flags));
     }
     else {
-        m_KeysDown.remove(keyCode);
+        m_KeysDown.remove(MAKE_KEYPRESS_STATE(keyCode, modifiers, flags));
     }
 
-    LiSendKeyboardEvent2(0x8000 | keyCode,
-                        event->state == SDL_PRESSED ?
-                            KEY_ACTION_DOWN : KEY_ACTION_UP,
-                        modifiers,
-                        shouldNotConvertToScanCodeOnServer ? SS_KBE_FLAG_NON_NORMALIZED : 0);
+    LiSendKeyboardEvent2(keyCode,
+                         event->state == SDL_PRESSED ?
+                             KEY_ACTION_DOWN : KEY_ACTION_UP,
+                         modifiers,
+                         flags);
+}
+
+void SdlInputHandler::raiseAllKeys()
+{
+    if (m_KeysDown.isEmpty()) {
+        return;
+    }
+
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                "Raising %d keys",
+                (int)m_KeysDown.count());
+
+    for (auto keyDown : std::as_const(m_KeysDown)) {
+        LiSendKeyboardEvent2(GET_KEYPRESS_CODE(keyDown),
+                             KEY_ACTION_UP,
+                             GET_KEYPRESS_EXTENDED_MODIFIER(keyDown),
+                             GET_KEYPRESS_FLAGS(keyDown));
+    }
+
+    m_KeysDown.clear();
 }
