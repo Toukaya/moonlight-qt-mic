@@ -6,6 +6,7 @@
 #include "seamlesswindow.h"
 
 #import <AppKit/AppKit.h>
+#include <SDL_log.h>
 
 @implementation SeamlessWindow {
     NSWindow *_window;
@@ -96,6 +97,15 @@
 
     // A minimized remote window keeps its local window, hidden rather than
     // destroyed, so restoring it does not re-create the window server object.
+    // The measurement instrument for the Retina line: the content size, the
+    // backing scale it was opened at, and the drawable size that follows.
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                "Seamless: window %u content %gx%g scale %.2f drawable %.0fx%.0f cell %d,%d %dx%d on canvas %gx%g",
+                (unsigned) _windowId, (double) content.width, (double) content.height, (double) scale,
+                (double) _layer.drawableSize.width, (double) _layer.drawableSize.height,
+                entry.cellPos.x(), entry.cellPos.y(), entry.cellSize.width(), entry.cellSize.height(),
+                (double) canvasSize.width, (double) canvasSize.height);
+
     _layer.hidden = (entry.flags & SEAMLESS_WF_VISIBLE) == 0;
     if (!_layer.hidden && !_window.isVisible) {
         [_window orderFrontRegardless];

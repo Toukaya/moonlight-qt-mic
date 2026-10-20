@@ -9,7 +9,12 @@
 #include <Limelight.h>
 #include "streaming/session.h"
 #include "streaming/streamutils.h"
+#include "streaming/seamless/seamlessmodel.h"
+#include "streaming/seamless/seamlesswindow.h"
 #include "path.h"
+
+#include <chrono>
+#include <map>
 
 #import <Cocoa/Cocoa.h>
 #import <VideoToolbox/VideoToolbox.h>
@@ -474,6 +479,160 @@ public:
     }}
 
     // Caller frees frame after we return
+    // Keep one local window per remote window, on the thread that owns the window
+    // server. Hidden remote windows stay hidden rather than being forgotten, so a
+    // minimized window keeps its place in the z order.
+    void syncSeamlessWindows()
+    {
+        SeamlessModel *model = GetSeamlessModel();
+        if (model == nullptr) {
+            return;
+        }
+
+        const auto &wins = model->windows();
+
+        for (auto it = m_SeamlessWindows.begin(); it != m_SeamlessWindows.end();) {
+            bool stillThere = false;
+            for (const auto &entry : wins) {
+                if (entry.id == it->first) {
+                    stillThere = true;
+                    break;
+                }
+            }
+            if (stillThere) {
+                ++it;
+            }
+            else {
+                [it->second close];
+                [it->second release];
+                it = m_SeamlessWindows.erase(it);
+            }
+        }
+
+        const CGSize canvas = CGSizeMake(model->canvasWidth(), model->canvasHeight());
+        for (const auto &entry : wins) {
+            auto it = m_SeamlessWindows.find(entry.id);
+            if (it == m_SeamlessWindows.end()) {
+                SeamlessWindow *window = [[SeamlessWindow alloc] initWithWindowId:entry.id
+                                                                           device:m_MetalLayer.device];
+                if (window == nil) {
+                    continue;
+                }
+                m_SeamlessWindows[entry.id] = window;
+                it = m_SeamlessWindows.find(entry.id);
+            }
+            [it->second updateWithEntry:entry canvasSize:canvas];
+        }
+    }
+
+    // Draw the canvas into every remote window: one command buffer, one render
+    // pass per window, one present per pass. The canvas is the decoded stream
+    // itself, so a window's cell is a sub-rectangle of the frame it came with.
+    void renderSeamlessWindows(AVFrame* frame)
+    { @autoreleasepool {
+        if (m_SeamlessWindows.empty()) {
+            return;
+        }
+
+        // The instrument for the GPU/stall lines: the CPU time this pass spends
+        // issuing the draws, and the frames it issued them for.
+        const auto startedAt = std::chrono::steady_clock::now();
+
+        const size_t planes = getFramePlaneCount(frame);
+        std::array<CVMetalTextureRef, MAX_VIDEO_PLANES> cvMetalTextures;
+        const bool hardware = frame->format == AV_PIX_FMT_VIDEOTOOLBOX;
+        if (hardware && !createTexturesFromFrame(frame, cvMetalTextures)) {
+            return;
+        }
+
+        auto commandBuffer = [m_CommandQueue commandBuffer];
+        bool drew = false;
+
+        for (auto &pair : m_SeamlessWindows) {
+            SeamlessWindow *window = pair.second;
+            id<CAMetalDrawable> drawable = [window nextDrawable];
+            if (drawable == nil) {
+                continue;
+            }
+
+            simd_float4 cell;
+            [window copyCellUvTo:&cell];
+
+            // The cell is measured from the top of the canvas; the quad's v axis
+            // points up, so the two are mirrored here and nowhere else.
+            const float u0 = cell.x;
+            const float u1 = cell.x + cell.z;
+            const float vTop = 1.0f - cell.y;
+            const float vBottom = 1.0f - (cell.y + cell.w);
+
+            Vertex verts[] =
+            {
+                { { -1.0f, -1.0f, 0.0f, 1.0f }, { u0, vBottom } },
+                { { -1.0f,  1.0f, 0.0f, 1.0f }, { u0, vTop } },
+                { {  1.0f, -1.0f, 0.0f, 1.0f }, { u1, vBottom } },
+                { {  1.0f,  1.0f, 0.0f, 1.0f }, { u1, vTop } },
+            };
+
+            auto renderPassDescriptor = [MTLRenderPassDescriptor renderPassDescriptor];
+            renderPassDescriptor.colorAttachments[0].texture = drawable.texture;
+            renderPassDescriptor.colorAttachments[0].loadAction = MTLLoadActionClear;
+            renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
+            renderPassDescriptor.colorAttachments[0].storeAction = MTLStoreActionStore;
+
+            auto renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
+            [renderEncoder setRenderPipelineState:m_VideoPipelineState];
+            if (hardware) {
+                for (size_t i = 0; i < planes; i++) {
+                    [renderEncoder setFragmentTexture:CVMetalTextureGetTexture(cvMetalTextures[i]) atIndex:i];
+                }
+            }
+            else {
+                for (size_t i = 0; i < planes; i++) {
+                    [renderEncoder setFragmentTexture:mapPlaneForSoftwareFrame(frame, i) atIndex:i];
+                }
+            }
+            [renderEncoder setFragmentBuffer:m_CscParamsBuffer offset:0 atIndex:0];
+            [renderEncoder setVertexBytes:verts length:sizeof(verts) atIndex:0];
+            [renderEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+            [renderEncoder endEncoding];
+
+            [commandBuffer presentDrawable:drawable];
+            drew = true;
+        }
+
+        if (!drew) {
+            return;
+        }
+
+        if (hardware) {
+            [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+                // The texture cache owns these references until the GPU is done.
+                for (size_t i = 0; i < planes; i++) {
+                    CFRelease(cvMetalTextures[i]);
+                }
+            }];
+        }
+
+        [commandBuffer commit];
+
+        // Same rule as the main drawable: never block the main run loop on a
+        // hardware frame; the software path must wait because it reuses textures.
+        if (!hardware) {
+            [commandBuffer waitUntilCompleted];
+        }
+
+        const auto elapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                                   std::chrono::steady_clock::now() - startedAt).count();
+        m_SeamlessPassUs += (double) elapsedUs;
+        m_SeamlessPassCount++;
+        if (m_SeamlessPassCount % 120 == 0) {
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                        "Seamless: %zu windows, issue time avg %.0f us over %d frames (%s frames)",
+                        m_SeamlessWindows.size(), m_SeamlessPassUs / m_SeamlessPassCount,
+                        m_SeamlessPassCount, hardware ? "hardware" : "software");
+        }
+    }}
+
     virtual void renderFrameIntoDrawable(AVFrame* frame, id<CAMetalDrawable> drawable)
     { @autoreleasepool {
         std::array<CVMetalTextureRef, MAX_VIDEO_PLANES> cvMetalTextures;
@@ -612,6 +771,11 @@ public:
             SDL_PushEvent(&event);
             return;
         }
+
+        // The seamless page's windows are drawn from the same frame the stream
+        // window gets, once per decoded frame, whatever drives the stream window.
+        syncSeamlessWindows();
+        renderSeamlessWindows(frame);
 
         // Start the display link if necessary
         startDisplayLink();
@@ -975,6 +1139,9 @@ private:
     id<MTLRenderPipelineState> m_OverlayPipelineState;
     id<MTLLibrary> m_ShaderLibrary;
     id<MTLCommandQueue> m_CommandQueue;
+    std::map<quint32, SeamlessWindow*> m_SeamlessWindows;
+    double m_SeamlessPassUs = 0;
+    int m_SeamlessPassCount = 0;
     id<MTLTexture> m_SwMappingTextures[MAX_VIDEO_PLANES];
     SDL_MetalView m_MetalView;
     int m_LastFrameWidth;

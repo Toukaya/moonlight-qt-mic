@@ -60,6 +60,11 @@
 // callback runs on the control thread and must not change what is drawn.
 static SeamlessModel* g_SeamlessModel = nullptr;
 
+SeamlessModel *GetSeamlessModel()
+{
+    return g_SeamlessModel;
+}
+
 static void seamlessOnTable(uint8_t seq, uint8_t kind, uint16_t canvasW, uint16_t canvasH,
                             int16_t workAreaX, int16_t workAreaY,
                             uint16_t workAreaW, uint16_t workAreaH,

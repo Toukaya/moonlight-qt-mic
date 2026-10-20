@@ -15,6 +15,12 @@ class MicrophoneCapture;
 class ClipboardManager;
 class NvHTTP;
 class QuickMenuManager;
+class SeamlessModel;
+
+// The window table the seamless page draws with, or nullptr when the session did
+// not open the channel. The renderer reads it on the frame thread; the model
+// guards its own handoff.
+SeamlessModel *GetSeamlessModel();
 
 class SupportedVideoFormatList : public QList<int>
 {
