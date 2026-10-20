@@ -52,6 +52,81 @@
 
 #define CONN_TEST_SERVER "qt.conntest.moonlight-stream.org"
 
+// The seamless window channel handlers log only in this stage. They are
+// registered on every session; common-c refuses every message until the host
+// has answered the capability, so nothing changes for a host that does not.
+static void seamlessLogTable(uint8_t seq, uint16_t canvasW, uint16_t canvasH,
+                             int16_t workAreaX, int16_t workAreaY,
+                             uint16_t workAreaW, uint16_t workAreaH,
+                             const LiSeamlessWindowEntry* entries, int count,
+                             void* context)
+{
+    Q_UNUSED(workAreaX);
+    Q_UNUSED(workAreaY);
+    Q_UNUSED(workAreaW);
+    Q_UNUSED(workAreaH);
+    Q_UNUSED(context);
+    qInfo() << "Seamless table seq" << seq << "count" << count
+            << "canvas" << canvasW << "x" << canvasH
+            << "firstId" << (count > 0 ? entries[0].id : 0u);
+}
+
+static void seamlessLogIcon(uint32_t iconHash, const uint8_t* data, int length, void* context)
+{
+    Q_UNUSED(data);
+    Q_UNUSED(context);
+    qInfo() << "Seamless icon hash" << QString::number(iconHash, 16) << "length" << length;
+}
+
+static void seamlessLogCaret(uint8_t windowId, int16_t x, int16_t y, uint16_t height, void* context)
+{
+    Q_UNUSED(context);
+    qInfo() << "Seamless caret window" << windowId << "at" << x << y << "height" << height;
+}
+
+static void seamlessLogAck(uint8_t seq, uint8_t result, void* context)
+{
+    Q_UNUSED(context);
+    qInfo() << "Seamless ack seq" << seq << "result" << result;
+}
+
+static void seamlessLogInput(uint8_t windowId, uint8_t mode, uint32_t hostPid, void* context)
+{
+    Q_UNUSED(context);
+    qInfo() << "Seamless input window" << windowId << "mode" << mode << "pid" << hostPid;
+}
+
+static void seamlessLogIntent(uint8_t windowId, uint8_t kind, int16_t x, int16_t y,
+                              uint16_t width, uint16_t height, void* context)
+{
+    Q_UNUSED(context);
+    qInfo() << "Seamless intent window" << windowId << "kind" << kind
+            << "rect" << x << y << width << height;
+}
+
+static void seamlessLogPresent(uint32_t frameId, uint32_t presentUs, void* context)
+{
+    Q_UNUSED(context);
+    qInfo() << "Seamless present frame" << frameId << "at" << presentUs;
+}
+
+static void seamlessLogSkip(uint32_t frameId, uint8_t reason, void* context)
+{
+    Q_UNUSED(context);
+    qInfo() << "Seamless skip frame" << frameId << "reason" << reason;
+}
+
+static const LiSeamlessCallbacks k_SeamlessCallbacks = {
+    seamlessLogTable,
+    seamlessLogIcon,
+    seamlessLogCaret,
+    seamlessLogAck,
+    seamlessLogInput,
+    seamlessLogIntent,
+    seamlessLogPresent,
+    seamlessLogSkip,
+};
+
 CONNECTION_LISTENER_CALLBACKS Session::k_ConnCallbacks = {
     Session::clStageStarting,
     nullptr,
@@ -676,6 +751,12 @@ bool Session::initialize(QQuickWindow* qtWindow)
     SDL_StopTextInput();
 
     LiInitializeStreamConfiguration(&m_StreamConfig);
+    // The channel is off unless it is forced on for a test run. A later stage
+    // replaces this with a preference; this stage must change nothing by itself.
+    m_StreamConfig.enableSeamless = (qEnvironmentVariableIntValue("MOONLIGHT_SEAMLESS") != 0);
+    if (m_StreamConfig.enableSeamless) {
+        qInfo() << "Seamless window channel: asking the host for the capability";
+    }
     m_StreamConfig.width = m_Preferences->width;
     m_StreamConfig.height = m_Preferences->height;
 
@@ -1779,6 +1860,8 @@ bool Session::startConnectionAsync()
                                                                          m_StreamConfig.fps,
                                                                          false);
     }
+
+    LiSetSeamlessCallbacks(&k_SeamlessCallbacks, nullptr);
 
     int err = LiStartConnection(&hostInfo, &m_StreamConfig, &k_ConnCallbacks,
                                 &m_VideoCallbacks, &m_AudioCallbacks,

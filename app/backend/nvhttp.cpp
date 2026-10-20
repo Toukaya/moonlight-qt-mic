@@ -234,6 +234,9 @@ NvHTTP::startApp(QString verb,
                                    "&remoteControllersBitmap="+QString::number(gamepadMask)+
                                    "&gcmap="+QString::number(gamepadMask)+
                                    "&gcpersist="+QString::number(persistGameControllersOnDisconnect ? 1 : 0)+
+                                   ((streamConfig->enableSeamless) ?
+                                       "&x-ml-general.featureFlags="+QString::number(SS_FF_SEAMLESS) :
+                                       "")+
                                    LiGetLaunchUrlQueryParameters(),
                                    LAUNCH_TIMEOUT_MS);
 
