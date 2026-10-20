@@ -6,6 +6,7 @@
 #include "backend/quickmenumanager.h"
 #include "backend/nvhttp.h"
 #include "streaming/audio/capture/microphonecapture.h"
+#include "streaming/seamless/seamlessmodel.h"
 #include <QTimer>
 
 #include <Limelight.h>
@@ -55,20 +56,40 @@
 // The seamless window channel handlers log only in this stage. They are
 // registered on every session; common-c refuses every message until the host
 // has answered the capability, so nothing changes for a host that does not.
-static void seamlessLogTable(uint8_t seq, uint16_t canvasW, uint16_t canvasH,
-                             int16_t workAreaX, int16_t workAreaY,
-                             uint16_t workAreaW, uint16_t workAreaH,
-                             const LiSeamlessWindowEntry* entries, int count,
-                             void* context)
+// The table is applied at a frame boundary by the model, never here: this
+// callback runs on the control thread and must not change what is drawn.
+static SeamlessModel* g_SeamlessModel = nullptr;
+
+static void seamlessOnTable(uint8_t seq, uint16_t canvasW, uint16_t canvasH,
+                            int16_t workAreaX, int16_t workAreaY,
+                            uint16_t workAreaW, uint16_t workAreaH,
+                            const LiSeamlessWindowEntry* entries, int count,
+                            void* context)
 {
-    Q_UNUSED(workAreaX);
-    Q_UNUSED(workAreaY);
-    Q_UNUSED(workAreaW);
-    Q_UNUSED(workAreaH);
     Q_UNUSED(context);
-    qInfo() << "Seamless table seq" << seq << "count" << count
-            << "canvas" << canvasW << "x" << canvasH
-            << "firstId" << (count > 0 ? entries[0].id : 0u);
+
+    if (g_SeamlessModel == nullptr) {
+        return;
+    }
+
+    QVector<SeamlessModel::WindowEntry> list;
+    list.reserve(count);
+    for (int i = 0; i < count; i++) {
+        SeamlessModel::WindowEntry entry;
+        entry.id = entries[i].id;
+        entry.cellPos = QPoint(entries[i].cellX, entries[i].cellY);
+        entry.cellSize = QSize(entries[i].cellW, entries[i].cellH);
+        entry.clientSize = QSize(entries[i].clientW, entries[i].clientH);
+        entry.desktopPos = QPoint(entries[i].desktopX, entries[i].desktopY);
+        entry.z = entries[i].z;
+        entry.flags = entries[i].flags;
+        entry.titleHash = entries[i].titleHash;
+        entry.iconHash = entries[i].iconHash;
+        list.append(entry);
+    }
+
+    g_SeamlessModel->onTable(seq, canvasW, canvasH, workAreaX, workAreaY,
+                             workAreaW, workAreaH, list.constData(), list.size());
 }
 
 static void seamlessLogIcon(uint32_t iconHash, const uint8_t* data, int length, void* context)
@@ -117,7 +138,7 @@ static void seamlessLogSkip(uint32_t frameId, uint8_t reason, void* context)
 }
 
 static const LiSeamlessCallbacks k_SeamlessCallbacks = {
-    seamlessLogTable,
+    seamlessOnTable,
     seamlessLogIcon,
     seamlessLogCaret,
     seamlessLogAck,
@@ -451,6 +472,9 @@ int Session::drSubmitDecodeUnit(PDECODE_UNIT du)
         IVideoDecoder* decoder = s_ActiveSession->m_VideoDecoder;
         if (decoder != nullptr) {
             int ret = decoder->submitDecodeUnit(du);
+            if (g_SeamlessModel != nullptr) {
+                g_SeamlessModel->onFrame(du->frameNumber);
+            }
             SDL_UnlockMutex(s_ActiveSession->m_DecoderLock);
             return ret;
         }
@@ -1861,6 +1885,9 @@ bool Session::startConnectionAsync()
                                                                          false);
     }
 
+    if (g_SeamlessModel == nullptr) {
+        g_SeamlessModel = new SeamlessModel(QCoreApplication::instance());
+    }
     LiSetSeamlessCallbacks(&k_SeamlessCallbacks, nullptr);
 
     int err = LiStartConnection(&hostInfo, &m_StreamConfig, &k_ConnCallbacks,
