@@ -8,6 +8,7 @@
  */
 #pragma once
 
+#include <QMutex>
 #include <QObject>
 #include <QPoint>
 #include <QSize>
@@ -56,6 +57,12 @@ signals:
 
 private:
     void applyPending();
+
+    // The pending table crosses threads: it is written on the network thread
+    // when a version arrives and taken on the frame thread when a frame is
+    // applied. This lock is the only thing that makes that handoff whole; the
+    // applied table itself is written on the frame thread alone.
+    QMutex m_Lock;
 
     QVector<WindowEntry> m_Windows;
     QVector<WindowEntry> m_Pending;

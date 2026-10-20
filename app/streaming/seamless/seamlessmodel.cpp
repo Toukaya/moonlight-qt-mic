@@ -5,6 +5,7 @@
 #include "seamlessmodel.h"
 
 #include <QDebug>
+#include <QMutexLocker>
 
 SeamlessModel::SeamlessModel(QObject* parent) : QObject(parent)
 {
@@ -15,11 +16,14 @@ void SeamlessModel::onTable(quint8 seq, quint16 canvasW, quint16 canvasH,
                             const WindowEntry* entries, int count)
 {
     // The protocol already rejected anything over the window limit or out of
-    // bounds, so this is a plain copy into the pending slot.
+    // bounds, so this is a plain copy into the pending slot. The over-limit
+    // answer is sent before the lock is taken: it does not touch the model.
     if (count < 0 || count > SEAMLESS_MAX_WINDOWS) {
         LiSendWindowAck(seq, SEAMLESS_ACK_OVER_LIMIT);
         return;
     }
+
+    QMutexLocker locker(&m_Lock);
 
     m_Pending = QVector<WindowEntry>(entries, entries + count);
     m_PendingSeq = seq;
@@ -40,23 +44,51 @@ void SeamlessModel::onFrame(quint32 frameId)
 {
     Q_UNUSED(frameId);
 
-    if (!m_HasPending) {
-        return;
-    }
-
     applyPending();
 }
 
 void SeamlessModel::applyPending()
 {
-    m_HasPending = false;
+    QVector<WindowEntry> pending;
+    quint8 pendingSeq = 0;
+    quint16 pendingCanvasW = 0;
+    quint16 pendingCanvasH = 0;
+    qint16 workX = 0;
+    qint16 workY = 0;
+    quint16 workW = 0;
+    quint16 workH = 0;
 
-    const bool canvasMoved = (m_CanvasW != m_PendingCanvasW) || (m_CanvasH != m_PendingCanvasH);
+    // The handoff of the pending table is the only part that crosses threads, so
+    // it is the only part under the lock: the network thread may be writing a
+    // newer version while this frame is being applied.
+    {
+        QMutexLocker locker(&m_Lock);
 
-    m_Windows = m_Pending;
-    m_CanvasW = m_PendingCanvasW;
-    m_CanvasH = m_PendingCanvasH;
-    m_AppliedSeq = m_PendingSeq;
+        if (!m_HasPending) {
+            return;
+        }
+
+        m_HasPending = false;
+        pending = m_Pending;
+        pendingSeq = m_PendingSeq;
+        pendingCanvasW = m_PendingCanvasW;
+        pendingCanvasH = m_PendingCanvasH;
+        workX = m_WorkX;
+        workY = m_WorkY;
+        workW = m_WorkW;
+        workH = m_WorkH;
+    }
+
+    const bool canvasMoved = (m_CanvasW != pendingCanvasW) || (m_CanvasH != pendingCanvasH);
+
+    m_Windows = pending;
+    m_CanvasW = pendingCanvasW;
+    m_CanvasH = pendingCanvasH;
+    m_WorkX = workX;
+    m_WorkY = workY;
+    m_WorkW = workW;
+    m_WorkH = workH;
+    m_AppliedSeq = pendingSeq;
     m_AppliedCount = m_Windows.size();
 
     qInfo() << "Seamless: table" << m_AppliedSeq << "applied at a frame boundary,"
