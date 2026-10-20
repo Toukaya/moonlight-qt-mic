@@ -239,6 +239,7 @@ HEADERS += \
     streaming/session.h \
     streaming/audio/capture/microphonecapture.h \
     streaming/seamless/seamlessmodel.h \
+    streaming/seamless/seamlesswindow.h \
     streaming/audio/renderers/renderer.h \
     streaming/audio/renderers/sdl.h \
     gui/computermodel.h \
@@ -420,7 +421,8 @@ macx {
     SOURCES += \
         streaming/video/ffmpeg-renderers/vt_base.mm \
         streaming/video/ffmpeg-renderers/vt_avsamplelayer.mm \
-        streaming/video/ffmpeg-renderers/vt_metal.mm
+        streaming/video/ffmpeg-renderers/vt_metal.mm \
+        streaming/seamless/seamlesswindow.mm
 
     HEADERS += \
         streaming/video/ffmpeg-renderers/vt.h
