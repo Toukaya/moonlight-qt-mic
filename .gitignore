@@ -7,3 +7,35 @@ build/
 libs/
 config.tests/*/.qmake.stash
 config.tests/*/Makefile
+
+# macOS and IDE noise
+.DS_Store
+.idea/
+
+# In-source qmake build output
+Makefile
+Makefile.Debug
+Makefile.Release
+.qmake.cache
+.qmake.stash
+*.o
+*.a
+config.log
+app/release/
+app/debug/
+app/Makefile*
+app/Moonlight.app/
+app/moonlight_plugin_import.cpp
+app/qml_qmlcache.qrc
+app/Info.plist-e
+h264bitstream/release/
+h264bitstream/debug/
+h264bitstream/Makefile*
+moonlight-common-c/release/
+moonlight-common-c/debug/
+moonlight-common-c/Makefile*
+qmdnsengine/release/
+qmdnsengine/debug/
+qmdnsengine/Makefile*
+config.tests/EGL/EGL
+config.tests/EGL/main.o
