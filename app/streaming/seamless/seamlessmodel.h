@@ -59,6 +59,10 @@ public:
     static bool mergeDelta(const QVector<WindowEntry>& held, const QVector<WindowEntry>& changed,
                            QVector<WindowEntry>* merged);
 
+    // A render thread must not iterate the applied table directly: the decoder
+    // thread replaces it at every frame boundary. These take a copy under the
+    // lock, so a QVector reallocation can never land mid-iteration.
+    QVector<WindowEntry> snapshotWindows() const;
     quint16 canvasWidth() const { return m_CanvasW; }
     quint16 canvasHeight() const { return m_CanvasH; }
     const QVector<WindowEntry>& windows() const { return m_Windows; }
@@ -79,7 +83,7 @@ private:
     // when a version arrives and taken on the frame thread when a frame is
     // applied. This lock is the only thing that makes that handoff whole; the
     // applied table itself is written on the frame thread alone.
-    QMutex m_Lock;
+    mutable QMutex m_Lock;
 
     QVector<WindowEntry> m_Windows;
     QVector<WindowEntry> m_Pending;

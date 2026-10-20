@@ -479,6 +479,50 @@ public:
     }}
 
     // Caller frees frame after we return
+    // Called from the GPU's completion handler; it must not block (QA's rule).
+    void noteSeamlessGpuUs(double gpuUs, size_t windows)
+    {
+        m_SeamlessGpuSumUs += gpuUs;
+        m_SeamlessGpuMaxUs = MAX(m_SeamlessGpuMaxUs, gpuUs);
+        m_SeamlessGpuCount++;
+        if (m_SeamlessGpuCount % 120 == 0) {
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                        "Seamless: gpu avg=%.1f us max=%.1f us over %d frames, %zu windows",
+                        m_SeamlessGpuSumUs / m_SeamlessGpuCount, m_SeamlessGpuMaxUs,
+                        m_SeamlessGpuCount, windows);
+        }
+    }
+
+    // QA's main-thread line: the pass itself and the gap between two passes.
+    void noteMainThreadPass(std::chrono::steady_clock::time_point startedAt)
+    {
+        const auto finishedAt = std::chrono::steady_clock::now();
+        const double passUs = std::chrono::duration<double, std::micro>(finishedAt - startedAt).count();
+        double gapUs = 0;
+        if (m_MainLastCall.time_since_epoch().count() != 0) {
+            gapUs = std::chrono::duration<double, std::micro>(startedAt - m_MainLastCall).count();
+        }
+        m_MainLastCall = startedAt;
+
+        m_MainPassMaxUs = MAX(m_MainPassMaxUs, passUs);
+        m_MainGapMaxUs = MAX(m_MainGapMaxUs, gapUs);
+        m_MainPassRing[m_MainCount % m_MainPassRing.size()] = passUs;
+        m_MainCount++;
+
+        if (m_MainCount % 120 == 0) {
+            std::array<double, 120> sorted = m_MainPassRing;
+            std::sort(sorted.begin(), sorted.end());
+            const double p99 = sorted[(size_t) (sorted.size() * 0.99) - 1];
+            double sum = 0;
+            for (double v : sorted) {
+                sum += v;
+            }
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                        "Seamless: main pass avg=%.1f us p99=%.1f us max=%.1f us gapmax=%.1f us over %d passes",
+                        sum / sorted.size(), p99, m_MainPassMaxUs, m_MainGapMaxUs, m_MainCount);
+        }
+    }
+
     // Keep one local window per remote window, on the thread that owns the window
     // server. Hidden remote windows stay hidden rather than being forgotten, so a
     // minimized window keeps its place in the z order.
@@ -489,7 +533,9 @@ public:
             return;
         }
 
-        const auto &wins = model->windows();
+        // A locked copy: the decoder thread replaces the applied table at every
+        // frame boundary, and this runs on the render thread.
+        const QVector<SeamlessModel::WindowEntry> wins = model->snapshotWindows();
 
         for (auto it = m_SeamlessWindows.begin(); it != m_SeamlessWindows.end();) {
             bool stillThere = false;
@@ -601,14 +647,30 @@ public:
         }
 
         if (!drew) {
+            // Nothing used the plane references, so release them here; the
+            // completion handler below is only installed on the commit path.
+            if (hardware) {
+                for (size_t i = 0; i < planes; i++) {
+                    CFRelease(cvMetalTextures[i]);
+                }
+            }
             return;
         }
 
         if (hardware) {
-            [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+            const auto passWindows = m_SeamlessWindows.size();
+            __block VTMetalRenderer *rendererForGpu = this;
+            [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
                 // The texture cache owns these references until the GPU is done.
                 for (size_t i = 0; i < planes; i++) {
                     CFRelease(cvMetalTextures[i]);
+                }
+
+                // QA's GPU line: the GPU's own timestamps, never the CPU issue
+                // time and never a wait on the frame thread.
+                const double gpuUs = (buffer.GPUEndTime - buffer.GPUStartTime) * 1e6;
+                if (gpuUs > 0) {
+                    rendererForGpu->noteSeamlessGpuUs(gpuUs, passWindows);
                 }
             }];
         }
@@ -1095,6 +1157,15 @@ public:
 
     void renderLatestFrameOnDrawable(id<CAMetalDrawable> drawable, CFTimeInterval targetTimestamp)
     {
+        // The instrument for QA's main-thread line: this whole call runs on the
+        // main run loop, driven by the display link.
+        const auto mainPassStarted = std::chrono::steady_clock::now();
+        struct MainPassDone {
+            VTMetalRenderer *self;
+            std::chrono::steady_clock::time_point started;
+            ~MainPassDone() { self->noteMainThreadPass(started); }
+        } mainPassDone {this, mainPassStarted};
+
         AVFrame* frame = nullptr;
 
         // Determine how long we can wait depending on how long our CAMetalDisplayLink
@@ -1142,6 +1213,14 @@ private:
     std::map<quint32, SeamlessWindow*> m_SeamlessWindows;
     double m_SeamlessPassUs = 0;
     int m_SeamlessPassCount = 0;
+    double m_SeamlessGpuSumUs = 0;
+    double m_SeamlessGpuMaxUs = 0;
+    int m_SeamlessGpuCount = 0;
+    double m_MainPassMaxUs = 0;
+    double m_MainGapMaxUs = 0;
+    std::array<double, 120> m_MainPassRing {};
+    int m_MainCount = 0;
+    std::chrono::steady_clock::time_point m_MainLastCall {};
     id<MTLTexture> m_SwMappingTextures[MAX_VIDEO_PLANES];
     SDL_MetalView m_MetalView;
     int m_LastFrameWidth;

@@ -112,15 +112,21 @@ void SeamlessModel::applyPending()
         applied = pending;
     }
 
-    m_Windows = applied;
-    m_CanvasW = canvasW;
-    m_CanvasH = canvasH;
-    m_WorkX = workX;
-    m_WorkY = workY;
-    m_WorkW = workW;
-    m_WorkH = workH;
-    m_AppliedSeq = pendingSeq;
-    m_AppliedCount = m_Windows.size();
+    // The apply point and the acknowledgement timing are unchanged; the lock is
+    // only here because a render thread takes a snapshot of this state while the
+    // frame thread replaces it.
+    {
+        QMutexLocker locker(&m_Lock);
+        m_Windows = applied;
+        m_CanvasW = canvasW;
+        m_CanvasH = canvasH;
+        m_WorkX = workX;
+        m_WorkY = workY;
+        m_WorkW = workW;
+        m_WorkH = workH;
+        m_AppliedSeq = pendingSeq;
+        m_AppliedCount = m_Windows.size();
+    }
 
     qInfo() << "Seamless: table" << m_AppliedSeq
             << (pendingKind == SEAMLESS_TABLE_DELTA ? "delta" : "snapshot")
@@ -134,6 +140,12 @@ void SeamlessModel::applyPending()
     LiSendWindowAck(m_AppliedSeq, SEAMLESS_ACK_APPLIED);
 
     emit windowsChanged();
+}
+
+QVector<SeamlessModel::WindowEntry> SeamlessModel::snapshotWindows() const
+{
+    QMutexLocker locker(&m_Lock);
+    return m_Windows;
 }
 
 bool SeamlessModel::mergeDelta(const QVector<WindowEntry>& held, const QVector<WindowEntry>& changed,
