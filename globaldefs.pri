@@ -26,4 +26,9 @@ CONFIG(release, debug|release) {
 # Enable ASan for Windows
 #QMAKE_CFLAGS += -fsanitize=address
 #QMAKE_CXXFLAGS += -fsanitize=address
-#QMAKE_LFLAGS += -incremental:no -wholearchive:clang_rt.asan_dynamic-x86_64.lib -wholearchive:clang_rt.asan_dynamic_runtime_thunk-x86_64.lib
+#QMAKE_LFLAGS += -incremental:no
+
+# Propagate environment variable flags
+QMAKE_CFLAGS   += $$(CFLAGS)
+QMAKE_CXXFLAGS += $$(CXXFLAGS)
+QMAKE_LFLAGS   += $$(LDFLAGS)

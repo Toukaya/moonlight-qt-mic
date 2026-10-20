@@ -74,6 +74,14 @@ extern "C" {
 #include <Limelight.h>
 
 #include <map>
+#include <unordered_set>
+
+#ifdef HAVE_DRM_MASTER_HOOKS
+extern "C" {
+void lockDrmMaster();
+void unlockDrmMaster();
+}
+#endif
 
 // This map is used to lookup characteristics of a given DRM format
 //
@@ -155,58 +163,14 @@ DrmRenderer::DrmRenderer(AVHWDeviceType hwDeviceType, IFFmpegRenderer *backendRe
       m_OutputRect{},
       m_SwFrameMapper(this),
       m_CurrentSwFrameIdx(0)
-#ifdef HAVE_EGL
-    , m_EglImageFactory(this)
-#endif
 {
     SDL_zero(m_SwFrame);
 }
 
 DrmRenderer::~DrmRenderer()
 {
-    // If we have a composition surface, unmap it before disabling planes
-    if (m_OverlayCompositionSurface) {
-        munmap(m_OverlayCompositionSurface->pixels, (uintptr_t)m_OverlayCompositionSurface->userdata);
-        SDL_FreeSurface(m_OverlayCompositionSurface);
-    }
-
-    if (m_DrmStateModified) {
-        // Ensure we're out of HDR mode
-        setHdrMode(false);
-
-        // Deactivate all planes
-        m_PropSetter.disablePlane(m_VideoPlane);
-        for (int i = 0; i < Overlay::OverlayMax; i++) {
-            m_PropSetter.disablePlane(m_OverlayPlanes[i]);
-        }
-
-        // Revert our changes from prepareToRender()
-        if (auto prop = m_Connector.property("content type")) {
-            m_PropSetter.restorePropertyToInitial(*prop);
-        }
-        if (auto prop = m_Crtc.property("VRR_ENABLED")) {
-            m_PropSetter.restorePropertyToInitial(*prop);
-        }
-        if (auto prop = m_Connector.property("max bpc")) {
-            m_PropSetter.restorePropertyToInitial(*prop);
-        }
-        if (auto zpos = m_VideoPlane.property("zpos"); zpos && !zpos->isImmutable()) {
-            m_PropSetter.restorePropertyToInitial(*zpos);
-        }
-        for (int i = 0; i < Overlay::OverlayMax; i++) {
-            if (auto zpos = m_OverlayPlanes[i].property("zpos"); zpos && !zpos->isImmutable()) {
-                m_PropSetter.restorePropertyToInitial(*zpos);
-            }
-        }
-        for (auto &plane : m_UnusedActivePlanes) {
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Restoring previously active plane: %u",
-                        plane.second.objectId());
-            m_PropSetter.restoreToInitial(plane.second);
-        }
-
-        m_PropSetter.apply();
-    }
+    // DRM state should be restored by the time we get here
+    SDL_assert(!m_DrmStateModified);
 
     for (int i = 0; i < k_SwFrameCount; i++) {
         if (m_SwFrame[i].primeFd) {
@@ -418,6 +382,56 @@ void DrmRenderer::prepareToRender()
 
     // We've now changed state that must be restored
     m_DrmStateModified = true;
+}
+
+void DrmRenderer::cleanupRenderContext()
+{
+    // We might be called without prepareToRender() if we fail during decoder testing
+    if (!m_DrmStateModified) {
+        return;
+    }
+
+    // If we have a composition surface, unmap it before disabling planes
+    if (m_OverlayCompositionSurface) {
+        munmap(m_OverlayCompositionSurface->pixels, (uintptr_t)m_OverlayCompositionSurface->userdata);
+        SDL_FreeSurface(m_OverlayCompositionSurface);
+        m_OverlayCompositionSurface = nullptr;
+    }
+
+    // Ensure we're out of HDR mode
+    setHdrMode(false);
+
+    // Restore active planes that we took over
+    m_PropSetter.restorePlane(m_VideoPlane);
+    for (int i = 0; i < Overlay::OverlayMax; i++) {
+        m_PropSetter.restorePlane(m_OverlayPlanes[i]);
+    }
+
+    // Revert our changes from prepareToRender()
+    if (auto prop = m_Connector.property("content type")) {
+        m_PropSetter.restorePropertyToInitial(*prop);
+    }
+    if (auto prop = m_Crtc.property("VRR_ENABLED")) {
+        m_PropSetter.restorePropertyToInitial(*prop);
+    }
+    if (auto prop = m_Connector.property("max bpc")) {
+        m_PropSetter.restorePropertyToInitial(*prop);
+    }
+    if (auto zpos = m_VideoPlane.property("zpos"); zpos && !zpos->isImmutable()) {
+        m_PropSetter.restorePropertyToInitial(*zpos);
+    }
+    for (int i = 0; i < Overlay::OverlayMax; i++) {
+        if (auto zpos = m_OverlayPlanes[i].property("zpos"); zpos && !zpos->isImmutable()) {
+            m_PropSetter.restorePropertyToInitial(*zpos);
+        }
+    }
+    for (auto &plane : m_UnusedActivePlanes) {
+        m_PropSetter.restorePlane(plane.second);
+    }
+
+    m_PropSetter.apply();
+
+    m_DrmStateModified = false;
 }
 
 bool DrmRenderer::initialize(PDECODER_PARAMETERS params)
@@ -644,6 +658,12 @@ bool DrmRenderer::initialize(PDECODER_PARAMETERS params)
                     else if (auto zpos = props.property("zpos")) {
                         activePlanesZpos.emplace(zpos->initialValue());
                     }
+                    else {
+                        // If there's no zpos property (which if true for one plane, must be true for all),
+                        // Z-order is determined by enumeration order. Pretend that the plane index is the
+                        // (immutable) zpos value in this scenario.
+                        activePlanesZpos.emplace(i);
+                    }
                 }
             }
 
@@ -774,7 +794,15 @@ bool DrmRenderer::initialize(PDECODER_PARAMETERS params)
                 }
             }
             else {
-                m_VideoPlaneZpos = 0;
+                // Use the plane index for DRM drivers without zpos support
+                if (!activePlanesZpos.empty() && i < *activePlanesZpos.crbegin()) {
+                    // This plane is too low to be visible
+                    drmModeFreePlane(plane);
+                    continue;
+                }
+                else {
+                    m_VideoPlaneZpos = i;
+                }
             }
 
             SDL_assert(!m_VideoPlane.isValid());
@@ -856,6 +884,14 @@ bool DrmRenderer::initialize(PDECODER_PARAMETERS params)
                 }
                 else if ((*zpos->range()).second <= m_VideoPlaneZpos) {
                     // This plane cannot be raised high enough to be visible
+                    drmModeFreePlane(plane);
+                    continue;
+                }
+            }
+            else {
+                // Use the plane index for DRM drivers without zpos support
+                if (i <= m_VideoPlaneZpos) {
+                    // This plane is too low to be visible
                     drmModeFreePlane(plane);
                     continue;
                 }
@@ -1621,8 +1657,8 @@ bool DrmRenderer::addFbForFrame(AVFrame *frame, uint32_t* newFbId, bool testMode
         drmFrame = (AVDRMFrameDescriptor*)frame->data[0];
     }
 
-    // If we're testing, check the IN_FORMATS property or legacy plane formats
-    if (testMode) {
+    // For non-atomic drivers, check the IN_FORMATS property or legacy plane formats
+    if (testMode && !m_PropSetter.isAtomic()) {
         bool formatMatch = false;
 
         uint64_t maskedModifier = drmFrame->objects[0].format_modifier;
@@ -1712,6 +1748,7 @@ bool DrmRenderer::addFbForFrame(AVFrame *frame, uint32_t* newFbId, bool testMode
     uint32_t offsets[4] = {};
     uint64_t modifiers[4] = {};
     uint32_t flags = 0;
+    std::unordered_set<uint32_t> handleSet;
 
     // DRM requires composed layers rather than separate layers per plane
     SDL_assert(drmFrame->nb_layers == 1);
@@ -1725,8 +1762,15 @@ bool DrmRenderer::addFbForFrame(AVFrame *frame, uint32_t* newFbId, bool testMode
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                          "drmPrimeFDToHandle() failed: %d",
                          errno);
+            for (uint32_t handle : handleSet) {
+                drmCloseBufferHandle(m_DrmFd, handle);
+            }
             return false;
         }
+
+        // Handles aren't unique for calls with the same FD, so we need to
+        // keep track of only the unique handles to avoid double-closing.
+        handleSet.emplace(handles[i]);
 
         pitches[i] = layer.planes[i].pitch;
         offsets[i] = layer.planes[i].offset;
@@ -1746,11 +1790,86 @@ bool DrmRenderer::addFbForFrame(AVFrame *frame, uint32_t* newFbId, bool testMode
                                      handles, pitches, offsets,
                                      (flags & DRM_MODE_FB_MODIFIERS) ? modifiers : NULL,
                                      newFbId, flags);
+
+    // Handles can be closed immediately after drmModeAddFB2WithModifiers()
+    for (uint32_t handle : handleSet) {
+        drmCloseBufferHandle(m_DrmFd, handle);
+    }
+
     if (err < 0) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "drmModeAddFB2[WithModifiers]() failed: %d",
                      err);
         return false;
+    }
+
+    // For atomic drivers, we'll use a test-only commit to confirm this plane+FB works
+    if (testMode && m_PropSetter.isAtomic()) {
+        SDL_Rect src, dst;
+        src.x = src.y = 0;
+        src.w = frame->width;
+        src.h = frame->height;
+
+        // This isn't a completely accurate test since SDL hasn't modeset to the new
+        // display resolution that we'll actually be using for streaming (since we're
+        // still not committed to even using DrmRenderer for rendering yet). Hopefully,
+        // it will be good enough though.
+        dst.x = dst.y = 0;
+        drmModeCrtc* crtc = drmModeGetCrtc(m_DrmFd, m_Crtc.objectId());
+        if (crtc != nullptr) {
+            dst.w = crtc->width;
+            dst.h = crtc->height;
+            drmModeFreeCrtc(crtc);
+        }
+        else {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                         "drmModeGetCrtc() failed: %d",
+                         errno);
+
+            // We'll just hope for the best here
+            dst.w = frame->width;
+            dst.h = frame->height;
+        }
+
+        StreamUtils::scaleSourceToDestinationSurface(&src, &dst);
+
+        // Temporarily take DRM master if we dropped it after initialization
+        if (!m_DrmStateModified) {
+#ifdef HAVE_DRM_MASTER_HOOKS
+            lockDrmMaster();
+#endif
+            drmSetMaster(m_DrmFd);
+        }
+        bool testResult = m_PropSetter.testPlane(m_VideoPlane,
+                                                 m_Crtc.objectId(),
+                                                 *newFbId,
+                                                 dst.x, dst.y,
+                                                 dst.w, dst.h,
+                                                 0, 0,
+                                                 frame->width << 16,
+                                                 frame->height << 16);
+        if (!m_DrmStateModified) {
+            drmDropMaster(m_DrmFd);
+#ifdef HAVE_DRM_MASTER_HOOKS
+            unlockDrmMaster();
+#endif
+        }
+
+        if (testResult) {
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                        "Selected DRM plane supports chosen decoding format and modifier: " FOURCC_FMT " %016" PRIx64,
+                        FOURCC_FMT_ARGS(drmFrame->layers[0].format),
+                        drmFrame->objects[0].format_modifier);
+        }
+        else {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                         "Selected DRM plane doesn't support chosen decoding format and modifier: " FOURCC_FMT " %016" PRIx64,
+                         FOURCC_FMT_ARGS(drmFrame->layers[0].format),
+                         drmFrame->objects[0].format_modifier);
+            drmModeRmFB(m_DrmFd, *newFbId);
+            *newFbId = 0;
+            return false;
+        }
     }
 
     return true;
@@ -1897,6 +2016,22 @@ int DrmRenderer::getDecoderColorspace()
     return COLORSPACE_REC_601;
 }
 
+int DrmRenderer::getDecoderColorRange()
+{
+    if (auto prop = m_VideoPlane.property("COLOR_RANGE")) {
+        // Prefer full range if the video plane supports it
+        if (prop->containsValue("YCbCr full range")) {
+            return COLOR_RANGE_FULL;
+        }
+        else if (prop->containsValue("YCbCr limited range")) {
+            return COLOR_RANGE_LIMITED;
+        }
+    }
+
+    // Default to limited if we couldn't find a valid COLOR_RANGE property
+    return COLOR_RANGE_LIMITED;
+}
+
 const char* DrmRenderer::getDrmColorEncodingValue(AVFrame* frame)
 {
     switch (getFrameColorspace(frame)) {
@@ -1962,9 +2097,10 @@ AVPixelFormat DrmRenderer::getEGLImagePixelFormat() {
     return AV_PIX_FMT_DRM_PRIME;
 }
 
-bool DrmRenderer::initializeEGL(EGLDisplay display,
+bool DrmRenderer::initializeEGL(IFFmpegRenderer* eglRenderer,
+                                EGLDisplay display,
                                 const EGLExtensions &ext) {
-    return m_EglImageFactory.initializeEGL(display, ext);
+    return m_EglImageFactory.initializeEGL(eglRenderer, display, ext);
 }
 
 ssize_t DrmRenderer::exportEGLImages(AVFrame *frame, EGLDisplay dpy,

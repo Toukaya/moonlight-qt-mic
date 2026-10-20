@@ -324,7 +324,7 @@ public:
         pipelineDesc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
         [m_OverlayPipelineState release];
         m_OverlayPipelineState = [m_MetalLayer.device newRenderPipelineStateWithDescriptor:pipelineDesc error:nullptr];
-        if (!m_VideoPipelineState) {
+        if (!m_OverlayPipelineState) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                          "Failed to create overlay pipeline state");
             return false;
@@ -398,6 +398,81 @@ public:
         return m_SwMappingTextures[planeIndex];
     }
 
+    bool createTexturesFromFrame(AVFrame* frame, std::array<CVMetalTextureRef, MAX_VIDEO_PLANES>& cvMetalTextures)
+    {
+        SDL_assert(frame->format == AV_PIX_FMT_VIDEOTOOLBOX);
+
+        CVPixelBufferRef pixBuf = reinterpret_cast<CVPixelBufferRef>(frame->data[3]);
+        size_t planes = getFramePlaneCount(frame);
+
+        // Create Metal textures for the planes of the CVPixelBuffer
+        for (size_t i = 0; i < planes; i++) {
+            MTLPixelFormat fmt;
+
+            switch (CVPixelBufferGetPixelFormatType(pixBuf)) {
+            case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:
+            case kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange:
+            case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:
+            case kCVPixelFormatType_444YpCbCr8BiPlanarFullRange:
+                fmt = (i == 0) ? MTLPixelFormatR8Unorm : MTLPixelFormatRG8Unorm;
+                break;
+
+            case kCVPixelFormatType_420YpCbCr10BiPlanarFullRange:
+            case kCVPixelFormatType_444YpCbCr10BiPlanarFullRange:
+            case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange:
+            case kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange:
+                fmt = (i == 0) ? MTLPixelFormatR16Unorm : MTLPixelFormatRG16Unorm;
+                break;
+
+            default:
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                             "Unknown pixel format: %x",
+                             CVPixelBufferGetPixelFormatType(pixBuf));
+                return false;
+            }
+
+            CVReturn err = CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, m_TextureCache, pixBuf, nullptr, fmt,
+                                                                     CVPixelBufferGetWidthOfPlane(pixBuf, i),
+                                                                     CVPixelBufferGetHeightOfPlane(pixBuf, i),
+                                                                     i,
+                                                                     &cvMetalTextures[i]);
+            if (err != kCVReturnSuccess) {
+                for (size_t j = 0; j < i; j++) {
+                    CFRelease(cvMetalTextures[j]);
+                }
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                             "CVMetalTextureCacheCreateTextureFromImage() failed: %d",
+                             err);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    bool testRenderFrame(AVFrame *frame) override
+    { @autoreleasepool {
+        if (frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
+            std::array<CVMetalTextureRef, MAX_VIDEO_PLANES> cvMetalTextures;
+            size_t planes = getFramePlaneCount(frame);
+            SDL_assert(planes <= MAX_VIDEO_PLANES);
+
+            // Test that we can actually create Metal textures from the CVPixelBufferRef
+            if (!createTexturesFromFrame(frame, cvMetalTextures)) {
+                return false;
+            }
+
+            for (size_t i = 0; i < planes; i++) {
+                CFRelease(cvMetalTextures[i]);
+            }
+        }
+        else {
+            // Mapping software frames should always work
+        }
+
+        return true;
+    }}
+
     // Caller frees frame after we return
     virtual void renderFrameIntoDrawable(AVFrame* frame, id<CAMetalDrawable> drawable)
     { @autoreleasepool {
@@ -406,45 +481,8 @@ public:
         SDL_assert(planes <= MAX_VIDEO_PLANES);
 
         if (frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
-            CVPixelBufferRef pixBuf = reinterpret_cast<CVPixelBufferRef>(frame->data[3]);
-
-            // Create Metal textures for the planes of the CVPixelBuffer
-            for (size_t i = 0; i < planes; i++) {
-                MTLPixelFormat fmt;
-
-                switch (CVPixelBufferGetPixelFormatType(pixBuf)) {
-                case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:
-                case kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange:
-                case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:
-                case kCVPixelFormatType_444YpCbCr8BiPlanarFullRange:
-                    fmt = (i == 0) ? MTLPixelFormatR8Unorm : MTLPixelFormatRG8Unorm;
-                    break;
-
-                case kCVPixelFormatType_420YpCbCr10BiPlanarFullRange:
-                case kCVPixelFormatType_444YpCbCr10BiPlanarFullRange:
-                case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange:
-                case kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange:
-                    fmt = (i == 0) ? MTLPixelFormatR16Unorm : MTLPixelFormatRG16Unorm;
-                    break;
-
-                default:
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                                 "Unknown pixel format: %x",
-                                 CVPixelBufferGetPixelFormatType(pixBuf));
-                    return;
-                }
-
-                CVReturn err = CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, m_TextureCache, pixBuf, nullptr, fmt,
-                                                                         CVPixelBufferGetWidthOfPlane(pixBuf, i),
-                                                                         CVPixelBufferGetHeightOfPlane(pixBuf, i),
-                                                                         i,
-                                                                         &cvMetalTextures[i]);
-                if (err != kCVReturnSuccess) {
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                                 "CVMetalTextureCacheCreateTextureFromImage() failed: %d",
-                                 err);
-                    return;
-                }
+            if (!createTexturesFromFrame(frame, cvMetalTextures)) {
+                return;
             }
         }
 
@@ -530,8 +568,28 @@ public:
         [commandBuffer presentDrawable:drawable];
         [commandBuffer commit];
 
-        // Wait for the command buffer to complete and free our CVMetalTextureCache references
-        [commandBuffer waitUntilCompleted];
+        // For VideoToolbox (hardware) frames we must NOT block here on
+        // waitUntilCompleted. The CVMetalTexture references are already released
+        // asynchronously by the addCompletedHandler block installed above, and the
+        // command buffer was created with retained references, so Metal keeps the
+        // drawable, plane textures, vertex buffer and CSC buffer alive until the GPU
+        // finishes. Blocking is not only unnecessary, it is dangerous: the
+        // CAMetalDisplayLink callback that drives this path runs on the main run loop,
+        // so waitUntilCompleted blocks the main thread inside a GPU wait. While the
+        // main thread is parked there, a macOS screen capture (Cmd-Shift-3 screenshot
+        // or a screen recording) that needs to read back this layer's drawable can
+        // deadlock against WindowServer. WindowServer then misses its userspace
+        // watchdog check-ins and the kernel panics ("userspace watchdog timeout: no
+        // successful checkins from WindowServer"). Returning immediately lets the
+        // present complete asynchronously and breaks that circular wait.
+        //
+        // The software-decode path is different: it reuses the persistent,
+        // CPU-managed m_SwMappingTextures across frames, which would be overwritten by
+        // the next frame's replaceRegion while the GPU may still be reading them. That
+        // path still needs to wait for completion to avoid tearing.
+        if (frame->format != AV_PIX_FMT_VIDEOTOOLBOX) {
+            [commandBuffer waitUntilCompleted];
+        }
     }}
 
     // Caller frees frame after we return
@@ -601,27 +659,22 @@ public:
             return nullptr;
         }
 
+        // First, try to find a low power (Intel) or unified memory (Apple Silicon) GPU
         for (id<MTLDevice> device in devices) {
             if (device.isLowPower || device.hasUnifiedMemory) {
                 return device;
             }
         }
 
-        if (!m_HwAccel) {
-            // Metal software decoding is always available
-            return [MTLCreateSystemDefaultDevice() autorelease];
-        }
-        else if (qgetenv("VT_FORCE_METAL") == "1") {
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Using Metal renderer due to VT_FORCE_METAL=1 override.");
-            return [MTLCreateSystemDefaultDevice() autorelease];
-        }
-        else {
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Avoiding Metal renderer due to use of dGPU/eGPU. Use VT_FORCE_METAL=1 to override.");
+        // Next, we'll just try to pick something internal to the system
+        for (id<MTLDevice> device in devices) {
+            if (!device.isRemovable) {
+                return device;
+            }
         }
 
-        return nullptr;
+        // Use the system-default device
+        return [MTLCreateSystemDefaultDevice() autorelease];
     }
 
     virtual bool initialize(PDECODER_PARAMETERS params) override

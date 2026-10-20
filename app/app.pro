@@ -36,6 +36,10 @@ DEFINES += QT_DEPRECATED_WARNINGS
 DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 win32 {
+    !exists($$PWD/../libs/windows) {
+        error("Missing dependencies. Please run 'powershell .\setup-deps.ps1' to fetch prebuilt libraries.")
+    }
+
     contains(QT_ARCH, x86_64) {
         LIBS += -L$$PWD/../libs/windows/lib/x64
         INCLUDEPATH += $$PWD/../libs/windows/include/x64 $$PWD/../libs/windows/include/x64/SDL2
@@ -49,6 +53,10 @@ win32 {
     LIBS += ws2_32.lib winmm.lib dxva2.lib ole32.lib gdi32.lib user32.lib d3d9.lib dwmapi.lib dbghelp.lib
 }
 macx:!disable-prebuilts {
+    !exists($$PWD/../libs/mac) {
+        error("Missing dependencies. Please run 'python3 setup-deps.py' to fetch prebuilt libraries.")
+    }
+
     INCLUDEPATH += $$PWD/../libs/mac/include $$PWD/../libs/mac/include/SDL2
     LIBS += -L$$PWD/../libs/mac/lib
 }
@@ -149,8 +157,8 @@ win32:!winrt {
 }
 macx {
     !disable-prebuilts {
-        LIBS += -lssl.3 -lcrypto.3 -lavcodec.62 -lavutil.60 -lswscale.9 -lopus -lSDL2 -lSDL2_ttf
-        CONFIG += discord-rpc
+        LIBS += -lssl.3 -lcrypto.3 -lavcodec.63 -lavutil.61 -lswscale.10 -lopus.0 -lSDL2 -lSDL2_ttf -lplacebo
+        CONFIG += discord-rpc libplacebo
     }
 
     LIBS += -lobjc -framework VideoToolbox -framework AVFoundation -framework CoreVideo -framework CoreGraphics -framework CoreMedia -framework AppKit -framework Metal -framework QuartzCore
@@ -350,6 +358,10 @@ libplacebo {
         streaming/video/ffmpeg-renderers/plvk_c.c
     HEADERS += \
         streaming/video/ffmpeg-renderers/plvk.h
+
+    macx {
+        SOURCES += streaming/video/ffmpeg-renderers/plvk_objc.mm
+    }
 }
 config_EGL {
     message(EGL renderer selected)
@@ -505,8 +517,8 @@ win32:CONFIG(release, debug|release): LIBS += -L$$OUT_PWD/../h264bitstream/relea
 else:win32:CONFIG(debug, debug|release): LIBS += -L$$OUT_PWD/../h264bitstream/debug/ -lh264bitstream
 else:unix: LIBS += -L$$OUT_PWD/../h264bitstream/ -lh264bitstream
 
-INCLUDEPATH += $$PWD/../h264bitstream/h264bitstream
-DEPENDPATH += $$PWD/../h264bitstream/h264bitstream
+INCLUDEPATH += $$PWD/../h264bitstream
+DEPENDPATH += $$PWD/../h264bitstream
 
 !winrt {
     win32:CONFIG(release, debug|release): LIBS += -L$$OUT_PWD/../AntiHooking/release/ -lAntiHooking

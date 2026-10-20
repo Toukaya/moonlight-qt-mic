@@ -276,7 +276,7 @@ bool VDPAURenderer::initialize(PDECODER_PARAMETERS params)
             else  {
                 SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                             "Display size not within capabilities %dx%d vs %dx%d",
-                            m_DisplayWidth, m_DisplayWidth,
+                            m_DisplayWidth, m_DisplayHeight,
                             maxWidth, maxHeight);
             }
         }
@@ -468,6 +468,12 @@ int VDPAURenderer::getDecoderColorspace()
     //
     // AMD and Nvidia GPUs both correctly process Rec 601, so let's not try our luck using a non-default colorspace.
     return COLORSPACE_REC_601;
+}
+
+int VDPAURenderer::getDecoderColorRange()
+{
+    // The default VdpVideoMixer CSC matrix assumes limited range
+    return COLOR_RANGE_LIMITED;
 }
 
 int VDPAURenderer::getDecoderCapabilities()

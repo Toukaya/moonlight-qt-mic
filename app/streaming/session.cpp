@@ -281,6 +281,7 @@ void Session::clSetAdaptiveTriggers(uint16_t controllerNumber, uint8_t eventFlag
 
 
 bool Session::chooseDecoder(StreamingPreferences::VideoDecoderSelection vds,
+                            StreamingPreferences::RendererSelection renderer,
                             SDL_Window* window, int videoFormat, int width, int height,
                             int frameRate, bool enableVsync, bool enableFramePacing, bool testOnly, IVideoDecoder*& chosenDecoder)
 {
@@ -300,6 +301,7 @@ bool Session::chooseDecoder(StreamingPreferences::VideoDecoderSelection vds,
     params.enableFramePacing = enableFramePacing;
     params.testOnly = testOnly;
     params.vds = vds;
+    params.renderer = renderer;
 
     SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                 "V-sync %s",
@@ -401,6 +403,7 @@ void Session::getDecoderInfo(SDL_Window* window,
 
     // Try an HEVC Main10 decoder first to see if we have HDR support
     if (chooseDecoder(StreamingPreferences::VDS_FORCE_HARDWARE,
+                      StreamingPreferences::RS_PROBE_ONLY,
                       window, VIDEO_FORMAT_H265_MAIN10, 1920, 1080, 60,
                       false, false, true, decoder)) {
         isHardwareAccelerated = decoder->isHardwareAccelerated();
@@ -414,6 +417,7 @@ void Session::getDecoderInfo(SDL_Window* window,
 
     // Try an AV1 Main10 decoder next to see if we have HDR support
     if (chooseDecoder(StreamingPreferences::VDS_FORCE_HARDWARE,
+                      StreamingPreferences::RS_PROBE_ONLY,
                       window, VIDEO_FORMAT_AV1_MAIN10, 1920, 1080, 60,
                       false, false, true, decoder)) {
         // If we've got a working AV1 Main 10-bit decoder, we'll enable the HDR checkbox
@@ -426,9 +430,11 @@ void Session::getDecoderInfo(SDL_Window* window,
         // If we found no hardware decoders with HDR, check for a renderer
         // that supports HDR rendering with software decoded frames.
         if (chooseDecoder(StreamingPreferences::VDS_FORCE_SOFTWARE,
+                          StreamingPreferences::RS_PROBE_ONLY,
                           window, VIDEO_FORMAT_H265_MAIN10, 1920, 1080, 60,
                           false, false, true, decoder) ||
             chooseDecoder(StreamingPreferences::VDS_FORCE_SOFTWARE,
+                          StreamingPreferences::RS_PROBE_ONLY,
                           window, VIDEO_FORMAT_AV1_MAIN10, 1920, 1080, 60,
                           false, false, true, decoder)) {
             isHdrSupported = decoder->isHdrSupported();
@@ -443,6 +449,7 @@ void Session::getDecoderInfo(SDL_Window* window,
 
     // Try a regular hardware accelerated HEVC decoder now
     if (chooseDecoder(StreamingPreferences::VDS_FORCE_HARDWARE,
+                      StreamingPreferences::RS_PROBE_ONLY,
                       window, VIDEO_FORMAT_H265, 1920, 1080, 60,
                       false, false, true, decoder)) {
         isHardwareAccelerated = decoder->isHardwareAccelerated();
@@ -456,6 +463,7 @@ void Session::getDecoderInfo(SDL_Window* window,
 
 #if 0 // See AV1 comment at the top of this function
     if (chooseDecoder(StreamingPreferences::VDS_FORCE_HARDWARE,
+                      StreamingPreferences::RS_PROBE_ONLY,
                       window, VIDEO_FORMAT_AV1_MAIN8, 1920, 1080, 60,
                       false, false, true, decoder)) {
         isHardwareAccelerated = decoder->isHardwareAccelerated();
@@ -470,6 +478,7 @@ void Session::getDecoderInfo(SDL_Window* window,
     // If we still didn't find a hardware decoder, try H.264 now.
     // This will fall back to software decoding, so it should always work.
     if (chooseDecoder(StreamingPreferences::VDS_AUTO,
+                      StreamingPreferences::RS_PROBE_ONLY,
                       window, VIDEO_FORMAT_H264, 1920, 1080, 60,
                       false, false, true, decoder)) {
         isHardwareAccelerated = decoder->isHardwareAccelerated();
@@ -491,7 +500,10 @@ Session::getDecoderAvailability(SDL_Window* window,
 {
     IVideoDecoder* decoder;
 
-    if (!chooseDecoder(vds, window, videoFormat, width, height, frameRate, false, false, true, decoder)) {
+    if (!chooseDecoder(vds,
+                       StreamingPreferences::RS_PROBE_ONLY,
+                       window, videoFormat, width, height, frameRate,
+                       false, false, true, decoder)) {
         return DecoderAvailability::None;
     }
 
@@ -506,7 +518,12 @@ bool Session::populateDecoderProperties(SDL_Window* window)
 {
     IVideoDecoder* decoder;
 
+    // NB: We pass the real renderer selection rather than RS_PROBE_ONLY
+    // here because this is operating on the real streaming window, and
+    // instantiating Metal or AVSBDL renderers can interfere with MoltenVK's
+    // attempt to change the window's colorspace, causing washed out colors.
     if (!chooseDecoder(m_Preferences->videoDecoderSelection,
+                       m_Preferences->rendererSelection,
                        window,
                        m_SupportedVideoFormats.first(),
                        m_StreamConfig.width,
@@ -652,6 +669,12 @@ bool Session::initialize(QQuickWindow* qtWindow)
         return false;
     }
 
+    // Stop text input. SDL enables it by default
+    // when we initialize the video subsystem, but this
+    // causes an IME popup when certain keys are held down
+    // on macOS.
+    SDL_StopTextInput();
+
     LiInitializeStreamConfiguration(&m_StreamConfig);
     m_StreamConfig.width = m_Preferences->width;
     m_StreamConfig.height = m_Preferences->height;
@@ -660,21 +683,13 @@ bool Session::initialize(QQuickWindow* qtWindow)
     getWindowDimensions(x, y, width, height);
 
     // Create a hidden window to use for decoder initialization tests
-    SDL_Window* testWindow = SDL_CreateWindow("", x, y, width, height,
-                                              SDL_WINDOW_HIDDEN | StreamUtils::getPlatformWindowFlags());
+    SDL_Window* testWindow = StreamUtils::createTestWindow();
     if (!testWindow) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                    "Failed to create test window with platform flags: %s",
-                    SDL_GetError());
-
-        testWindow = SDL_CreateWindow("", x, y, width, height, SDL_WINDOW_HIDDEN);
-        if (!testWindow) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                         "Failed to create window for hardware decode test: %s",
-                         SDL_GetError());
-            SDL_QuitSubSystem(SDL_INIT_VIDEO);
-            return false;
-        }
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "Failed to create window for hardware decode test: %s",
+                     SDL_GetError());
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+        return false;
     }
 
     qInfo() << "Server GPU:" << m_Computer->gpuModel;
@@ -802,24 +817,6 @@ bool Session::initialize(QQuickWindow* qtWindow)
             }
         }
 
-#if 0
-        // TODO: Determine if AV1 is better depending on the decoder
-        if (getDecoderAvailability(testWindow,
-                                   m_Preferences->videoDecoderSelection,
-                                   m_Preferences->enableYUV444 ?
-                                        (m_Preferences->enableHdr ? VIDEO_FORMAT_AV1_HIGH10_444 : VIDEO_FORMAT_AV1_HIGH8_444) :
-                                        (m_Preferences->enableHdr ? VIDEO_FORMAT_AV1_MAIN10 : VIDEO_FORMAT_AV1_MAIN8),
-                                   m_StreamConfig.width,
-                                   m_StreamConfig.height,
-                                   m_StreamConfig.fps) != DecoderAvailability::Hardware) {
-            // Deprioritize AV1 unless we can't hardware decode HEVC and have HDR enabled.
-            // We want to keep AV1 at the top of the list for HDR with software decoding
-            // because dav1d is higher performance than FFmpeg's HEVC software decoder.
-            if (hevcDA == DecoderAvailability::Hardware || !m_Preferences->enableHdr) {
-                m_SupportedVideoFormats.deprioritizeByMask(VIDEO_FORMAT_MASK_AV1);
-            }
-        }
-#else
         // Deprioritize AV1 unless we can't hardware decode HEVC, and have HDR enabled
         // or we're on Windows or a non-x86 Linux/BSD.
         //
@@ -847,7 +844,15 @@ bool Session::initialize(QQuickWindow* qtWindow)
             ) {
             m_SupportedVideoFormats.deprioritizeByMask(VIDEO_FORMAT_MASK_AV1);
         }
-#endif
+        else if (!m_Preferences->enableHdr &&
+                   getDecoderAvailability(testWindow,
+                                          m_Preferences->videoDecoderSelection,
+                                          m_Preferences->enableYUV444 ? VIDEO_FORMAT_AV1_HIGH8_444 : VIDEO_FORMAT_AV1_MAIN8,
+                                          m_StreamConfig.width,
+                                          m_StreamConfig.height,
+                                          m_StreamConfig.fps) != DecoderAvailability::Hardware) {
+            m_SupportedVideoFormats.deprioritizeByMask(VIDEO_FORMAT_MASK_AV1);
+        }
 
 #ifdef Q_OS_DARWIN
         {
@@ -1510,7 +1515,8 @@ void Session::updateOptimalWindowDisplayMode()
     if (!matchVideo) {
         // Start with the native desktop resolution and try to find
         // the highest refresh rate that our stream FPS evenly divides.
-        for (int i = 0; i < SDL_GetNumDisplayModes(displayIndex); i++) {
+        int numDisplayModes = SDL_GetNumDisplayModes(displayIndex);
+        for (int i = 0; i < numDisplayModes; i++) {
             if (SDL_GetDisplayMode(displayIndex, i, &mode) == 0) {
                 if (mode.w == desktopMode.w && mode.h == desktopMode.h &&
                     mode.refresh_rate % m_StreamConfig.fps == 0) {
@@ -1533,7 +1539,8 @@ void Session::updateOptimalWindowDisplayMode()
     if (bestMode.refresh_rate == 0) {
         float bestModeAspectRatio = 0;
         float videoAspectRatio = (float)m_ActiveVideoWidth / (float)m_ActiveVideoHeight;
-        for (int i = 0; i < SDL_GetNumDisplayModes(displayIndex); i++) {
+        int numDisplayModes = SDL_GetNumDisplayModes(displayIndex);
+        for (int i = 0; i < numDisplayModes; i++) {
             if (SDL_GetDisplayMode(displayIndex, i, &mode) == 0) {
                 float modeAspectRatio = (float)mode.w / (float)mode.h;
                 if (mode.w >= m_ActiveVideoWidth && mode.h >= m_ActiveVideoHeight &&
@@ -2028,24 +2035,24 @@ void Session::exec()
     bool needsFirstEnterCapture = false;
     bool needsPostDecoderCreationCapture = false;
 
-    // HACK: For Wayland, we wait until we get the first SDL_WINDOWEVENT_ENTER
-    // event where it seems to work consistently on GNOME. For other platforms,
-    // especially where SDL may call SDL_RecreateWindow(), we must only capture
-    // after the decoder is created.
-    if (strcmp(SDL_GetCurrentVideoDriver(), "wayland") == 0) {
-        // Native Wayland: Capture on SDL_WINDOWEVENT_ENTER
-        needsFirstEnterCapture = true;
+    // Avoid capturing the mouse initially for windowed relative mode.
+    // We still capture in windowed absolute mode because it doesn't
+    // constrain the motion of the cursor. This allows the user to
+    // easily reposition or resize the window.
+    if (m_IsFullScreen || m_Preferences->absoluteMouseMode) {
+        // HACK: For Wayland, we wait until we get the first SDL_WINDOWEVENT_ENTER
+        // event where it seems to work consistently on GNOME. For other platforms,
+        // especially where SDL may call SDL_RecreateWindow(), we must only capture
+        // after the decoder is created.
+        if (strcmp(SDL_GetCurrentVideoDriver(), "wayland") == 0) {
+            // Native Wayland: Capture on SDL_WINDOWEVENT_ENTER
+            needsFirstEnterCapture = true;
+        }
+        else {
+            // X11/XWayland: Capture after decoder creation
+            needsPostDecoderCreationCapture = true;
+        }
     }
-    else {
-        // X11/XWayland: Capture after decoder creation
-        needsPostDecoderCreationCapture = true;
-    }
-
-    // Stop text input. SDL enables it by default
-    // when we initialize the video subsystem, but this
-    // causes an IME popup when certain keys are held down
-    // on macOS.
-    SDL_StopTextInput();
 
     // Disable the screen saver if requested
     if (m_Preferences->keepAwake) {
@@ -2329,6 +2336,7 @@ void Session::exec()
                 // Choose a new decoder (hopefully the same one, but possibly
                 // not if a GPU was removed or something).
                 if (!chooseDecoder(m_Preferences->videoDecoderSelection,
+                                   m_Preferences->rendererSelection,
                                    m_Window, m_ActiveVideoFormat, m_ActiveVideoWidth,
                                    m_ActiveVideoHeight, m_ActiveVideoFrameRate,
                                    enableVsync,
