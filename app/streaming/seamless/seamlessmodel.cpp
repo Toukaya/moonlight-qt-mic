@@ -66,8 +66,6 @@ void SeamlessModel::applyPending()
     // Only now does the host learn that this version can be superseded.
     LiSendWindowAck(m_AppliedSeq, SEAMLESS_ACK_APPLIED);
 
-    if (canvasMoved) {
-        emit windowsChanged();
-    }
+    Q_UNUSED(canvasMoved);
     emit windowsChanged();
 }
