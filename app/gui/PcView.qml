@@ -50,7 +50,7 @@ CenteredGridView {
             console.log("[host-page] push failed: " + component.errorString())
             return
         }
-        var page = component.createObject(stackView, {
+        var page = component.createObject(pcGrid.StackView.view, {
             "computerIndex": hostIndex,
             "hostName": hostName,
             "showHiddenGames": showHiddenGames === true
@@ -194,7 +194,7 @@ CenteredGridView {
                     // The entry is the host page: View All Apps opens it on the
                     // Desktop mode tab, where the existing grid and launch path
                     // live unchanged.
-                    onTriggered: root.openHostPage(index, model.name, true)
+                    onTriggered: pcGrid.openHostPage(index, model.name, true)
                     visible: model.online && model.paired
                 }
                 NavigableMenuItem {
@@ -247,7 +247,7 @@ CenteredGridView {
                     // The host page is the second level: it carries the two tabs
                     // (Desktop mode, Seamless Windows). Nothing creates AppView
                     // directly any more.
-                    root.openHostPage(index, model.name, false)
+                    pcGrid.openHostPage(index, model.name, false)
                 }
                 else {
                     var pin = computerModel.generatePinString()
