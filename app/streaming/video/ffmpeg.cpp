@@ -1864,7 +1864,16 @@ void FFmpegVideoDecoder::decoderThreadProc()
                 continue;
             }
 
-            LiCompleteVideoFrame(handle, submitDecodeUnit(du));
+            {
+                // The table is applied at the frame boundary and nowhere else:
+                // the decode unit we just handed to the decoder IS that boundary,
+                // so the newest published table becomes the drawn one here.
+                const uint32_t seamlessFrameNumber = du->frameNumber;
+                LiCompleteVideoFrame(handle, submitDecodeUnit(du));
+                if (SeamlessModel *seamlessModel = GetSeamlessModel()) {
+                    seamlessModel->onFrame(seamlessFrameNumber);
+                }
+            }
         }
 
         if (m_FramesIn != m_FramesOut) {
@@ -2051,7 +2060,11 @@ void FFmpegVideoDecoder::decoderThreadProc()
                     // while we're waiting for this to frame to come back.
                     if (LiPollNextVideoFrame(&handle, &du)) {
                         // FIXME: Handle EAGAIN on avcodec_send_packet() properly?
+                        const uint32_t seamlessFrameNumber = du->frameNumber;
                         LiCompleteVideoFrame(handle, submitDecodeUnit(du));
+                        if (SeamlessModel *seamlessModel = GetSeamlessModel()) {
+                            seamlessModel->onFrame(seamlessFrameNumber);
+                        }
                     }
                     else {
                         // No output data or input data. Let's wait a little bit.
