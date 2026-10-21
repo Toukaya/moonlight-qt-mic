@@ -25,6 +25,11 @@ NavigableItemDelegate {
     property int appIndex: 0
 
     signal appRequested(int appIndex, string appName, string appId)
+    // The right-click tile menu's three actions: each carries the same identity
+    // shape as appRequested, so the page can act on the tile it belongs to.
+    signal openRequested(int appIndex, string appName, string appId)
+    signal pinRequested(int appIndex, string appName, string appId)
+    signal closeRequested(int appIndex, string appName, string appId)
 
     readonly property int padOuter: 10
     readonly property int labelGap: 4
@@ -101,16 +106,18 @@ NavigableItemDelegate {
 
         NavigableMenuItem {
             text: qsTr("Open")
-            onTriggered: root.openRequested(root.appName)
+            onTriggered: root.openRequested(root.appIndex, root.appName, root.appId)
         }
         NavigableMenuItem {
             text: qsTr("Pin")
-            onTriggered: root.pinRequested(root.appName)
+            // The model has no pin role in this fork, so the action is not offered.
+            visible: false
+            onTriggered: root.pinRequested(root.appIndex, root.appName, root.appId)
         }
         NavigableMenuItem {
             text: qsTr("Close")
             visible: root.appRunning
-            onTriggered: root.closeRequested(root.appName)
+            onTriggered: root.closeRequested(root.appIndex, root.appName, root.appId)
         }
     }
 

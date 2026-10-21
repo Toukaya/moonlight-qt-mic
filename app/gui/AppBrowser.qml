@@ -198,6 +198,8 @@ Rectangle {
                 boxartSource: model.boxart
 
                 onAppRequested: root.appRequested(appIndex, appName, appId)
+                onOpenRequested: root.appRequested(appIndex, appName, appId)
+                onCloseRequested: appsModel.quitRunningApp()
             }
         }
 
