@@ -60,7 +60,7 @@ Rectangle {
             background: Rectangle {
                 anchors.fill: parent
                 radius: 6
-                color: row.highlighted ? "#424242" : (row.hovered ? "#3a3a3a" : "transparent")
+                color: row.highlighted ? "#424242" : (row.hovered ? "#424242" : "transparent")
                 Rectangle {
                     visible: row.highlighted
                     width: 3; height: parent.height - 12; radius: 2
@@ -84,7 +84,7 @@ Rectangle {
                         text: row.kind === "header" ? qsTr(row.title) : row.title
                         font.pointSize: row.kind === "header" ? 11 : 13
                         color: row.kind === "header" ? "#aaaaaa"
-                               : (row.highlighted ? "#ffffff" : "#cccccc")
+                               : (row.highlighted ? "#FFFFFF" : "#cccccc")
                         elide: Text.ElideMiddle
                         width: rail.width - 70
                         anchors.verticalCenter: parent.verticalCenter

@@ -7,10 +7,10 @@
 //      the 0x56 SEAMLESS_MSG_ICON message (uint32 hash, then PNG bytes,
 //      once per hash) lands here as iconSource; future wiring, no protocol
 //      yet;
-//   3. the letter tile when a real source is ABSENT or FAILED to decode -
-//      on a wired host with 0x56 up and running this face is unreachable
-//      for apps that have icons; while the uplink is unwired it stays the
-//      honest face for the rest, and it is labelled a stub in the PR.
+//   3. the letter tile WHILE LOADING ONLY (Image.Loading) - never the
+//      steady-state face: when no source exists, or a source failed to
+//      decode, the tile shows the app's own no-boxart placeholder instead
+//      (the deliberate, stated no-icon face per the refused-blob rule).
 // The Qt image cache keeps decoded images once per source, so scrolling
 // does not re-decode; the per-hash pixmap cache of plan 11.7 lands with the
 // icon provider.
@@ -27,18 +27,30 @@ Item {
     property string boxartSource: ""
     // App title, used by the loading-only letter tile
     property string title: ""
+    // The deliberate no-icon face: the app's own placeholder asset
+    property string placeholderSource: "qrc:/res/no_app_image.png"
 
     Image {
         id: pix
         anchors.fill: parent
         fillMode: Image.PreserveAspectFit
-        source: root.boxartSource !== "" ? root.boxartSource : root.iconSource
+        // Source order: boxart, then window icon; empty or failed sources
+        // fall back to the placeholder, so the letter tile only ever covers
+        // the Loading window
+        source: {
+            var picked = root.boxartSource !== "" ? root.boxartSource
+                                                  : root.iconSource
+            if (picked === "" || pix.status === Image.Error) {
+                return root.placeholderSource
+            }
+            return picked
+        }
     }
 
-    // Letter tile: the loading and failure fallback only (plan 11.7)
+    // Letter tile: covers the Loading window only
     Rectangle {
         anchors.fill: parent
-        visible: pix.status === Image.Null || pix.status === Image.Error
+        visible: pix.status === Image.Loading
         radius: 8
         color: root.stableColor(root.title)
 
