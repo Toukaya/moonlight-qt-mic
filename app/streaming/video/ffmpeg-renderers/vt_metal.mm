@@ -1221,10 +1221,14 @@ public:
     void renderLatestFrameOnDrawable(id<CAMetalDrawable> drawable, CFTimeInterval targetTimestamp)
     {
         // The instrument for QA's main-thread line, gated on the seamless path
-        // being live: with the feature off this callback must be unchanged, and
-        // two clock reads per pass are a change.
-        const auto mainPassStarted = std::chrono::steady_clock::now();
+        // being live. The gate is computed BEFORE the first clock read: with the
+        // feature off this callback must cost exactly what it did before, which
+        // means zero clock reads, not one.
         const bool instrumentMain = GetSeamlessModel() != nullptr && !m_SeamlessWindows.empty();
+        std::chrono::steady_clock::time_point mainPassStarted;
+        if (instrumentMain) {
+            mainPassStarted = std::chrono::steady_clock::now();
+        }
         struct MainPassDone {
             VTMetalRenderer *self;
             std::chrono::steady_clock::time_point started;

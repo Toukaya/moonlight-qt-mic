@@ -7,9 +7,9 @@
  *          commit. This class owns the window, its drawable and the rectangle of
  *          the canvas it samples; the renderer owns the command buffer.
  *
- *          Construction and every update must run on the main thread: the window
- *          server is a main-thread object, while the model is applied on the
- *          frame thread.
+ *          The render thread only stores geometry here and asks for a drawable;
+ *          every AppKit call (create, frame, order, hide, close) is marshalled to
+ *          the main thread, because the window server belongs to it.
  */
 #pragma once
 

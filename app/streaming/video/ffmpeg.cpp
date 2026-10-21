@@ -2,6 +2,8 @@
 #include "ffmpeg.h"
 #include "utils.h"
 #include "streaming/session.h"
+#include "streaming/seamless/seamlessmodel.h"
+#include "streaming/seamless/seamlessinstruments.h"
 
 #include <h264_stream.h>
 
@@ -2126,9 +2128,28 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
             addVideoStats(m_LastWndVideoStats, lastTwoWndStats);
             addVideoStats(m_ActiveWndVideoStats, lastTwoWndStats);
 
-            stringifyVideoStats(lastTwoWndStats,
-                                Session::get()->getOverlayManager().getOverlayText(Overlay::OverlayDebug),
-                                Session::get()->getOverlayManager().getOverlayMaxTextLength());
+            char *overlayText = Session::get()->getOverlayManager().getOverlayText(Overlay::OverlayDebug);
+            const int overlayMax = Session::get()->getOverlayManager().getOverlayMaxTextLength();
+            stringifyVideoStats(lastTwoWndStats, overlayText, overlayMax);
+
+            // The seamless block, appended to the existing statistics overlay and
+            // only while the feature is on. Fed by the same instruments that log.
+            if (GetSeamlessModel() != nullptr) {
+                char block[192];
+                SDL_snprintf(block, sizeof(block),
+                             "windows: %d\n"
+                             "in-flight: %u\n"
+                             "gpu-pass: %.3f ms\n"
+                             "drawable: %dx%d @ %.2fx\n",
+                             seamless_instruments::windowCount.load(),
+                             (unsigned) (lastTwoWndStats.receivedFrames - lastTwoWndStats.renderedFrames),
+                             seamless_instruments::gpuPassUs.load() / 1000.0,
+                             seamless_instruments::drawableW.load(),
+                             seamless_instruments::drawableH.load(),
+                             seamless_instruments::drawableScaleX100.load() / 100.0);
+                const size_t used = SDL_strlen(overlayText);
+                SDL_strlcpy(overlayText + used, block, (size_t) overlayMax - used);
+            }
             Session::get()->getOverlayManager().setOverlayTextUpdated(Overlay::OverlayDebug);
         }
 
