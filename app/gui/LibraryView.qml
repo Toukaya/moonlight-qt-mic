@@ -60,33 +60,6 @@ Item {
                     + " apps=" + appsVisual.items.count)
     }
 
-    // Binds a known host at page open: the only online host, else the
-    // first known one. The operator can always switch from the rail.
-    function bindKnownHost() {
-        if (root.computerIndex >= 0 || !root.computerModel) {
-            return
-        }
-        var pick = -1
-        var pickName = ""
-        for (var i = 0; i < computerVisual.items.count; i++) {
-            var c = computerVisual.items.get(i).model
-            if (pick === -1) {
-                pick = i
-                pickName = c.name
-            }
-            if (c.online) {
-                pick = i
-                pickName = c.name
-                break
-            }
-        }
-        if (pick >= 0) {
-            console.log("[seamless-page] auto-bind host '" + pickName
-                        + "' index " + pick)
-            selectHost(pick, pickName)
-        }
-    }
-
     function onComputerLost() {
         root.errorText = qsTr("The host is no longer reachable.")
     }
@@ -124,53 +97,25 @@ Item {
         noticeTimer.restart()
     }
 
-    // The rail rows rebuild from the real models
+    // The rail rows rebuild from the real models, and the host comes from the
+    // push: this page is a per-host destination, so construction binds the host
+    // it was pushed with and nothing else has to guess.
     Component.onCompleted: {
-        if (hostIndex >= 0) {
-            root.selectHost(hostIndex, root.hostName)
-        }
-        else {
-            // Constructed without a host: this page is a per-host destination,
-            // so it leaves for the device list instead of pretending emptiness.
-            console.log("[seamless-page] no host bound, returning to the device list")
+        if (hostIndex < 0) {
+            // Constructed without a host: leave for the device list instead of
+            // pretending the host published nothing.
+            console.log("[seamless-page] pop: no host bound at construction")
             if (typeof stackView !== "undefined" && stackView) {
                 stackView.pop()
             }
             return
         }
-        // ComputerManager is a context property of the app; the typeof
-        // guard keeps the page loadable where it is absent. The rail
-        // rebuilds itself when the models change
         if (typeof ComputerManager !== "undefined") {
             computerModel.initialize(ComputerManager)
         }
-        // Populate the rail, then bind a known host (the saved hosts load
-        // synchronously; discovered ones land through the model's signals)
-        bindKnownHost()
-        railBindTimer.restart()
-    }
-
-    Timer {
-        id: railBindTimer
-        interval: 2500
-        repeat: true
-        property int runs: 0
-        onTriggered: {
-            runs++
-            bindKnownHost()
-            if (runs >= 2) {
-                stop()
-            }
-        }
-    }
-
-    Connections {
-        target: root.computerModel
-        function onRowsInserted(parent, first, last) {
-            if (root.computerIndex < 0) {
-                bindKnownHost()
-            }
-        }
+        root.selectHost(hostIndex, root.hostName)
+        console.log("[seamless-page] bind: hostIndex=" + hostIndex +
+                    " host=" + root.hostName + " apps=" + appsModel.count)
     }
 
     Connections {
