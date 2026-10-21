@@ -41,7 +41,15 @@ NvHTTP::NvHTTP(NvAddress address, uint16_t httpsPort, QSslCertificate serverCert
 }
 
 NvHTTP::NvHTTP(NvComputer* computer, QNetworkAccessManager* nam) :
-    NvHTTP(computer->activeAddress, computer->activeHttpsPort, computer->serverCert, !computer->isNvidiaServerSoftware, nam)
+    // Every request goes to an ADDRESS the host entry holds. The mDNS name is
+    // display text only: a name can resolve through a proxy to something that is
+    // not the host at all (HostNotFoundError, or worse), so it must never build
+    // a request. A manual address is the operator's own statement of where the
+    // host is, so it comes first; the addresses discovery learned follow.
+    NvHTTP(computer->manualAddress.isNull()
+               ? (computer->activeAddress.isNull() ? computer->localAddress : computer->activeAddress)
+               : computer->manualAddress,
+           computer->activeHttpsPort, computer->serverCert, !computer->isNvidiaServerSoftware, nam)
 {
 }
 

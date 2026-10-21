@@ -207,7 +207,11 @@ NvComputer::NvComputer(NvHTTP& http, QString serverInfo)
     this->appVersion = NvHTTP::getXmlString(serverInfo, "appversion");
     this->gfeVersion = NvHTTP::getXmlString(serverInfo, "GfeVersion");
     this->gpuModel = NvHTTP::getXmlString(serverInfo, "gputype");
-    this->activeAddress = http.address();
+    // The address that answered is the active one - unless the operator gave a
+    // manual address, which stays the connection address for every request.
+    if (manualAddress.isNull()) {
+        this->activeAddress = http.address();
+    }
     this->state = NvComputer::CS_ONLINE;
     this->pendingQuit = false;
     this->isSupportedServerVersion = CompatFetcher::isGfeVersionSupported(this->gfeVersion);
