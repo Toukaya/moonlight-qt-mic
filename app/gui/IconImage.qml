@@ -31,6 +31,14 @@ Item {
     // The deliberate no-icon face: the app's own placeholder asset
     property string placeholderSource: "qrc:/res/no_app_image.png"
 
+    // Latches a failed source so the source binding cannot oscillate
+    // between the broken URL and the placeholder. Cleared when a new
+    // source is set: the next title or role may load fine.
+    property bool sourceFailed: false
+
+    onBoxartSourceChanged: sourceFailed = false
+    onIconSourceChanged: sourceFailed = false
+
     Image {
         id: pix
         anchors.fill: parent
@@ -42,12 +50,17 @@ Item {
         // fall back to the placeholder, so the letter tile only ever covers
         // the Loading window
         source: {
-            var picked = root.boxartSource !== "" ? root.boxartSource
-                                                  : root.iconSource
-            if (picked === "" || pix.status === Image.Error) {
+            if (root.sourceFailed) {
                 return root.placeholderSource
             }
-            return picked
+            var picked = root.boxartSource !== "" ? root.boxartSource
+                                                  : root.iconSource
+            return picked === "" ? root.placeholderSource : picked
+        }
+        onStatusChanged: {
+            if (pix.status === Image.Error) {
+                root.sourceFailed = true
+            }
         }
     }
 

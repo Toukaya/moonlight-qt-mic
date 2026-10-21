@@ -44,10 +44,9 @@ Rectangle {
         id: filteredApps
     }
 
-    // Column count derives from the content width: at least 3 columns, so
-    // tiles never overflow horizontally at 1280x600 or maximised
-    readonly property int contentWidth: tileGrid.width - 2 * padOuter
-    readonly property int columns: Math.max(3, Math.floor(contentWidth / 240))
+    // The grid carries the app's own literals (AppView.qml:21): cell
+    // 230x297, and CenteredGridView centres whatever columns fit - the
+    // operator's enumerated metrics govern (r1 queued the confirm)
 
     onAppsModelChanged: refilter()
 
@@ -175,14 +174,15 @@ Rectangle {
             }
         }
 
-        // Content body, grid mode (plan 11.2). The bottom margin keeps the
-        // last row above the footer; the grid scrolls instead of overflowing
+        // Content body, grid mode (plan 11.2). Fixed cell metrics from
+        // AppView.qml:21; CenteredGridView centres what fits. The bottom
+        // margin keeps the last row above the footer; the grid scrolls
         CenteredGridView {
             id: tileGrid
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: !root.listView
-            cellWidth: Math.floor(root.contentWidth / root.columns)
+            cellWidth: 230
             cellHeight: 297
             topMargin: padInner
             bottomMargin: gridBottomClearance

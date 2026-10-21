@@ -1,16 +1,14 @@
 // AppTile is one app in the browser grid of the Seamless Windows page. It
 // copies the anatomy of the existing app grid delegate (AppView.qml:74):
 // a 220x287 delegate on the 230x297 cell, the 200x267 icon area anchored to
-// the top, the label under it. The numbers are DERIVED, not hardcoded: the
-// delegate insets 5 per side from the cell, the icon area insets 10 per
-// side from the delegate. Focus behaviour comes from
-// NavigableItemDelegate, so keyboard and gamepad navigation reuse the
-// existing logic instead of new focus code.
-//
-// The icon source order is the operator's: the app list boxart role for
-// entries the list knows, the window icon by hash (message 0x56, future
-// wiring) for the rest, and the letter tile covers only while an image
-// loads.
+// the top, the label under it - with three recorded departures (label
+// under instead of AppView's overlay, pointSize 20 with elide instead of
+// 22 with wrap, PreserveAspectFit instead of stretch; see the PR). The
+// numbers are DERIVED, not hardcoded: the delegate insets 5 per side from
+// the cell, the icon area insets 10 per side from the delegate. Focus
+// behaviour comes from NavigableItemDelegate, so keyboard and gamepad
+// navigation reuse the existing logic instead of new focus code. The icon
+// source order lives in IconImage.qml and is not restated here.
 //
 // STUB NOTE: Open and Close need the launch path and the window table
 // (plan 11.4); the shell shows a stub notice where they fire. Pin belongs to

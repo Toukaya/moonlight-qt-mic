@@ -15,15 +15,17 @@ Item {
     id: root
 
     // STUB: fixed sample rows; the real app model replaces this (plan 11.4).
-    // boxart points at the app's own no-boxart placeholder asset, so the
-    // stub tiles show real pixels and the letter tile stays loading-only
+    // Three rows carry distinct art and the rest the app's own no-boxart
+    // placeholder, so the captures demonstrate both faces: an app WITH an
+    // icon shows it (no placeholder), an app without one shows the
+    // deliberate placeholder face
     ListModel {
         id: stubApps
         ListElement { name: "Notes"; running: false; busy: false; boxart: "qrc:/res/no_app_image.png" }
-        ListElement { name: "Files"; running: false; busy: false; boxart: "qrc:/res/no_app_image.png" }
+        ListElement { name: "Files"; running: false; busy: false; boxart: "qrc:/res/moonlight.svg" }
         ListElement { name: "Mail"; running: true; busy: false; boxart: "qrc:/res/no_app_image.png" }
         ListElement { name: "Photos"; running: false; busy: false; boxart: "qrc:/res/no_app_image.png" }
-        ListElement { name: "Terminal"; running: true; busy: false; boxart: "qrc:/res/no_app_image.png" }
+        ListElement { name: "Terminal"; running: true; busy: false; boxart: "qrc:/res/ic_videogame_asset_white_48px.svg" }
         ListElement { name: "IDE"; running: false; busy: true; boxart: "qrc:/res/no_app_image.png" }
         ListElement { name: "Music"; running: false; busy: false; boxart: "qrc:/res/no_app_image.png" }
         ListElement { name: "Reader"; running: false; busy: false; boxart: "qrc:/res/no_app_image.png" }
