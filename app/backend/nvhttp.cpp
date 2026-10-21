@@ -24,6 +24,24 @@
 #define XML_NAME_EQUALS(x, y) ((x) == (u##y))
 #endif
 
+// Every request goes to an ADDRESS the host entry holds - a numeric one. The
+// mDNS name is display text only, and a manual address that is itself a NAME
+// ("wintb", the operator's own entry) is display text too: it is what the poller
+// resolves and tries, and the address that answered becomes the active one. A
+// name must never build a request URL, because on a machine behind a proxy a
+// name can resolve to something that is not the host at all.
+static NvAddress pickRequestAddress(const NvComputer& computer)
+{
+    if (!computer.manualAddress.isNull() &&
+        !QHostAddress(computer.manualAddress.address()).isNull()) {
+        return computer.manualAddress;
+    }
+    if (!computer.activeAddress.isNull()) {
+        return computer.activeAddress;
+    }
+    return computer.localAddress;
+}
+
 NvHTTP::NvHTTP(NvAddress address, uint16_t httpsPort, QSslCertificate serverCert, bool useTrueUid, QNetworkAccessManager* nam) :
     m_Nam(nam ? nam : new QNetworkAccessManager(this)),
     m_ServerCert(serverCert),
@@ -46,9 +64,7 @@ NvHTTP::NvHTTP(NvComputer* computer, QNetworkAccessManager* nam) :
     // not the host at all (HostNotFoundError, or worse), so it must never build
     // a request. A manual address is the operator's own statement of where the
     // host is, so it comes first; the addresses discovery learned follow.
-    NvHTTP(computer->manualAddress.isNull()
-               ? (computer->activeAddress.isNull() ? computer->localAddress : computer->activeAddress)
-               : computer->manualAddress,
+    NvHTTP(pickRequestAddress(*computer),
            computer->activeHttpsPort, computer->serverCert, !computer->isNvidiaServerSoftware, nam)
 {
 }
