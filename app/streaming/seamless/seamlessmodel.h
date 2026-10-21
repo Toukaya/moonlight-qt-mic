@@ -71,7 +71,6 @@ public:
     // thread replaces it at every frame boundary. This takes one copy under one
     // lock acquisition, canvas included.
     TableView snapshotTable() const;
-    const QVector<WindowEntry>& windows() const { return m_Windows; }
     quint8 appliedSeq() const { return m_AppliedSeq; }
     int appliedCount() const { return m_AppliedCount; }
     // The last answer this model sent, kept so an applied table and its answer
