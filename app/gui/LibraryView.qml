@@ -61,10 +61,13 @@ Item {
     // same running-app guard, the same StreamSegue with a session from
     // AppModel.createSessionForApp, pushed on the same StackView
     function launchApp(appIndex, appName, appId) {
+        // The seamless page launches a second app instead of refusing it: the host
+        // appends the new app's process root to the session's launched set, so the
+        // first app keeps running and both window sets coexist. The classic guard
+        // (AppView.qml:207-221) is untouched - that is the ordinary stream path.
         var runningId = appsModel.getRunningAppId()
-        if (runningId !== 0 && runningId !== appId) {
-            showNotice(qsTr("Quit %1 before launching %2.")
-                       .arg(appsModel.getRunningAppName()).arg(appName))
+        if (runningId === appId) {
+            showNotice(qsTr("%1 is already open.").arg(appName))
             return
         }
         var component = Qt.createComponent("StreamSegue.qml")
