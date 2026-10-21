@@ -67,7 +67,10 @@ SeamlessModel *GetSeamlessModel()
 
 bool Session::isSeamlessActive()
 {
-    return s_ActiveSession != nullptr && s_ActiveSession->m_StreamConfig.enableSeamless;
+    // The NEGOTIATED flag: the client offers the bit, and the library keeps it
+    // only when the host answered the capability. An asked-and-declined session
+    // must not show the block.
+    return s_ActiveSession != nullptr && LiIsSeamlessEnabled() != 0;
 }
 
 static void seamlessOnTable(uint8_t seq, uint8_t kind, uint16_t canvasW, uint16_t canvasH,
