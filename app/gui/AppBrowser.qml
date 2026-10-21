@@ -102,7 +102,11 @@ Rectangle {
 
             Label {
                 Layout.fillWidth: true
-                text: root.hostLabel + " - " + qsTr("Apps")
+                // The title never reads "- Apps": with no host bound it says so
+                // and points at the device list instead of claiming emptiness.
+                text: root.hostLabel.length > 0
+                      ? root.hostLabel + " - " + qsTr("Apps")
+                      : qsTr("Select a device")
                 font.pointSize: 22
                 elide: Label.ElideRight
                 color: "#cccccc"
