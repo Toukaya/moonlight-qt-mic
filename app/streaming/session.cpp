@@ -65,6 +65,11 @@ SeamlessModel *GetSeamlessModel()
     return g_SeamlessModel;
 }
 
+QString Session::appName() const
+{
+    return m_App.name;
+}
+
 bool Session::isSeamlessActive()
 {
     // The NEGOTIATED flag: the client offers the bit, and the library keeps it

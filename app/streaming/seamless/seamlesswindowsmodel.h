@@ -23,6 +23,10 @@ public:
     enum Role {
         IdRole = Qt::UserRole + 1,
         TitleRole,
+        /// The LOCAL rectangle: the canvas cell position with the client (local)
+        /// size, i.e. where and how large the local window is. Not the canvas cell
+        /// size and not the desktop rectangle - those are the other two rects the
+        /// entry carries.
         RectRole,
         FlagsRole,
         StateRole,

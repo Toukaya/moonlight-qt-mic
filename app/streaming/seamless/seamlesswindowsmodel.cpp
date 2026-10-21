@@ -70,6 +70,11 @@ QHash<int, QByteArray> SeamlessWindowsModel::roleNames() const
 void SeamlessWindowsModel::onWindowsChanged()
 {
     QVector<Row> rows;
+    QString appTitle;
+
+    if (Session* session = Session::get()) {
+        appTitle = session->appName();
+    }
 
     if (m_Source != nullptr) {
         const SeamlessModel::TableView view = m_Source->snapshotTable();
@@ -77,14 +82,16 @@ void SeamlessWindowsModel::onWindowsChanged()
         for (const auto& entry : view.windows) {
             Row row;
             row.id = entry.id;
-            row.rect = QRect(entry.cellPos, entry.cellSize);
+            // The local rectangle: the cell's canvas position with the client size
+            // the user's window is drawn at.
+            row.rect = QRect(entry.cellPos, entry.clientSize);
             row.flags = entry.flags;
             // Bits 5..6 are the window state (normal, minimized, maximized).
             row.state = (entry.flags >> 5) & 0x3;
             row.z = entry.z;
-            // The wire carries a title hash, not the text: the role exists and is
-            // stable per window, and it is the hash until a title source exists.
-            row.title = QStringLiteral("0x") + QString::number(entry.titleHash, 16).rightJustified(8, QLatin1Char('0'));
+            // The table is scoped to the launched app, so the app's own name is the
+            // window's name: the wire stays frozen (it carries a hash, never text).
+            row.title = appTitle;
             // 0x56 icons are not uplinked yet; an empty icon lets the page fall
             // back to the app-list boxart, and to the letter tile while loading.
             row.icon = QUrl();

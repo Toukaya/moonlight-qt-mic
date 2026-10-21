@@ -110,6 +110,10 @@ public:
     // that did not ask for the channel, which is every session by default.
     static bool isSeamlessActive();
 
+    // The app this session launched: the seamless table is scoped to it, so its
+    // name is what the running-window list shows as each window's title.
+    QString appName() const;
+
     friend class SdlInputHandler;
     friend class DeferredSessionCleanupTask;
     friend class AsyncConnectionStartThread;
