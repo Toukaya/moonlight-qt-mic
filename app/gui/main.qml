@@ -253,6 +253,7 @@ ApplicationWindow {
             visible: toolBar.width > 700
             anchors.fill: parent
             text: stackView.currentItem.objectName
+            color: (stackView.currentItem instanceof LibraryView) ? "#cccccc" : undefined
             font.pointSize: 20
             elide: Label.ElideRight
             horizontalAlignment: Qt.AlignHCenter
