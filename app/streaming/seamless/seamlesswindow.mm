@@ -156,6 +156,9 @@ static short host_modifiers_for_event(NSEvent* event)
 
 @end
 
+@interface SeamlessWindow () <NSWindowDelegate>
+@end
+
 @implementation SeamlessWindow {
     NSWindow *_window;
     NSView *_view;
@@ -218,6 +221,7 @@ static short host_modifiers_for_event(NSEvent* event)
     _view.layer = _layer;
     _view.wantsLayer = YES;
     _window.contentView = _view;
+    _window.delegate = self;
     _window.releasedWhenClosed = NO;
 
     return self;
@@ -429,6 +433,19 @@ static short host_modifiers_for_event(NSEvent* event)
                     "Seamless: main apply avg=%.1f us max=%.1f us over %d applies",
                     sum / count, max, count);
     }
+}
+
+- (void)windowWillClose:(NSNotification*)notification
+{
+    // Kind 5 of the existing intent message: closing the local window closes the
+    // window it belongs to on the host. The ruling added it as a VALUE of the
+    // existing kind field, so the wire layout is untouched.
+    uint8_t message[SEAMLESS_INTENT_SIZE] {};
+    message[0] = SEAMLESS_MSG_WINDOW_INTENT;
+    message[1] = (uint8_t) _windowId;
+    message[2] = 5;  // close
+    LiSendSeamlessMessage(message, (int) sizeof(message));
+    Q_UNUSED(notification);
 }
 
 - (void)close
