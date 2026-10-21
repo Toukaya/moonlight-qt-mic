@@ -163,24 +163,6 @@ Item {
         function onModelReset() { root.selectHost(root.computerIndex, root.hostName) }
     }
 
-    // The page must not open on an empty grid: when the device list arrives and
-    // nothing is picked yet, pick the first device, which is what fills the app
-    // grid through the same initialize AppView uses.
-    Connections {
-        target: computerModel
-
-        function onRowsInserted() {
-            if (root.computerIndex < 0 && computerModel.computerCount() > 0) {
-                root.selectHost(0, computerModel.computerName(0))
-            }
-        }
-
-        function onModelReset() {
-            if (root.computerIndex < 0 && computerModel.computerCount() > 0) {
-                root.selectHost(0, computerModel.computerName(0))
-            }
-        }
-    }
 
     RowLayout {
         anchors.fill: parent
