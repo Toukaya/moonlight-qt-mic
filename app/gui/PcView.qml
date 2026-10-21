@@ -41,19 +41,16 @@ CenteredGridView {
     }
 
     // The page is a per-host destination: it is pushed WITH the host bound, so
-    // it never opens on an empty grid and never asks a global question.
-    // The host name for the toolbar entry, from the same model the rail reads.
-    function seamlessHostName(hostIndex) {
-        return computerModel.computerName(hostIndex)
-    }
-
-    function openSeamlessPage(hostIndex, hostName) {
-        var component = Qt.createComponent("LibraryView.qml")
+    // The host page is a per-host destination and THE entry: it carries the two
+    // tabs (Desktop mode, Seamless Windows). There is no menu item and no toolbar
+    // button for it - the tab is the entry.
+    function openHostPage(hostIndex, hostName) {
+        var component = Qt.createComponent("HostPage.qml")
         if (component.status !== Component.Ready) {
-            console.log("[seamless-page] push failed: " + component.errorString())
+            console.log("[host-page] push failed: " + component.errorString())
             return
         }
-        var page = component.createObject(stackView, {"hostIndex": hostIndex, "hostName": hostName})
+        var page = component.createObject(stackView, {"computerIndex": hostIndex, "hostName": hostName})
         stackView.push(page)
     }
 
@@ -195,13 +192,6 @@ CenteredGridView {
                         var appView = component.createObject(stackView, {"computerIndex": index, "objectName": model.name, "showHiddenGames": true})
                         stackView.push(appView)
                     }
-                    visible: model.online && model.paired
-                }
-                // The Seamless Windows destination of THIS host: a sibling of the
-                // desktop path (View All Apps above), which keeps its behaviour.
-                NavigableMenuItem {
-                    text: qsTr("Seamless Windows")
-                    onTriggered: root.openSeamlessPage(index, model.name)
                     visible: model.online && model.paired
                 }
                 NavigableMenuItem {

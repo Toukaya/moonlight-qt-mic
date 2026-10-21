@@ -23,6 +23,7 @@
         <file>gui/QuickMenu.qml</file>
         <file>gui/Toast.qml</file>
         <file>gui/LibraryView.qml</file>
+        <file>gui/HostPage.qml</file>
         <file>gui/AppSidebar.qml</file>
         <file>gui/AppBrowser.qml</file>
         <file>gui/AppTile.qml</file>

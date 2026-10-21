@@ -432,38 +432,6 @@ ApplicationWindow {
             }
 
             NavigableToolButton {
-                id: libraryButton
-
-                // Additive entry to the separate Seamless Windows page
-                // (operator ruling, plan 6.0; permanently visible, default
-                // setting on per the operator's one-pass DoD item (a))
-                iconSource: "qrc:/res/desktop_windows-48px.svg"
-
-                ToolTip.delay: 1000
-                ToolTip.timeout: 5000
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Seamless Windows")
-
-                // Opens the page for the host selected in PcView, the same
-                // per-host destination the context menu pushes. Hidden while no
-                // host is selected: the page has nothing to bind without one.
-                // The visible setting gates the entry as well as the channel:
-                // turning it off hides the affordance and disables the feature.
-                visible: stackView.currentItem instanceof PcView
-                         && stackView.currentItem.currentIndex >= 0
-                         && StreamingPreferences.uiSeamlessPage
-                onClicked: {
-                    var pc = stackView.currentItem
-                    var hostIndex = pc.currentIndex
-                    pc.openSeamlessPage(hostIndex, pc.seamlessHostName(hostIndex))
-                }
-
-                Keys.onDownPressed: {
-                    stackView.currentItem.forceActiveFocus(Qt.TabFocus)
-                }
-            }
-
-            NavigableToolButton {
                 id: settingsButton
 
                 iconSource:  "qrc:/res/settings.svg"
