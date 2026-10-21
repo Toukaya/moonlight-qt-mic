@@ -1,4 +1,8 @@
 #include "session.h"
+
+#include <QImage>
+#include <QQmlEngine>
+#include <QQuickImageProvider>
 #include "settings/streamingpreferences.h"
 #include "streaming/streamutils.h"
 #include "backend/richpresencemanager.h"
@@ -43,6 +47,7 @@
 #include <QSvgRenderer>
 #include <QPainter>
 #include <QImage>
+#include <QQmlEngine>
 #include <QGuiApplication>
 #include <QCursor>
 #include <QScreen>
@@ -60,7 +65,34 @@
 // callback runs on the control thread and must not change what is drawn.
 static SeamlessModel* g_SeamlessModel = nullptr;
 
-static void seamlessOnTable(uint8_t seq, uint16_t canvasW, uint16_t canvasH,
+SeamlessModel *GetSeamlessModel()
+{
+    return g_SeamlessModel;
+}
+
+// Set where the session is created, so the page model can name the launched app
+// without reaching into the session's private state.
+static QString g_SeamlessAppName;
+
+QString SeamlessSessionAppName()
+{
+    return g_SeamlessAppName;
+}
+
+QString Session::appName() const
+{
+    return m_App.name;
+}
+
+bool Session::isSeamlessActive()
+{
+    // The NEGOTIATED flag: the client offers the bit, and the library keeps it
+    // only when the host answered the capability. An asked-and-declined session
+    // must not show the block.
+    return s_ActiveSession != nullptr && LiIsSeamlessEnabled() != 0;
+}
+
+static void seamlessOnTable(uint8_t seq, uint8_t kind, uint16_t canvasW, uint16_t canvasH,
                             int16_t workAreaX, int16_t workAreaY,
                             uint16_t workAreaW, uint16_t workAreaH,
                             const LiSeamlessWindowEntry* entries, int count,
@@ -88,15 +120,79 @@ static void seamlessOnTable(uint8_t seq, uint16_t canvasW, uint16_t canvasH,
         list.append(entry);
     }
 
-    g_SeamlessModel->onTable(seq, canvasW, canvasH, workAreaX, workAreaY,
+    g_SeamlessModel->onTable(seq, kind, canvasW, canvasH, workAreaX, workAreaY,
                              workAreaW, workAreaH, list.constData(), list.size());
+}
+
+// The icons the host sends are kept by hash: the page draws them through the
+// image provider below, keyed by the same hash the table carries.
+static QHash<quint32, QByteArray> s_SeamlessIconBytes;
+
+bool SeamlessIconBytes(quint32 iconHash, QByteArray& out)
+{
+    const auto it = s_SeamlessIconBytes.constFind(iconHash);
+    if (it == s_SeamlessIconBytes.constEnd()) {
+        return false;
+    }
+    out = it.value();
+    return true;
 }
 
 static void seamlessLogIcon(uint32_t iconHash, const uint8_t* data, int length, void* context)
 {
-    Q_UNUSED(data);
     Q_UNUSED(context);
+    if (data == nullptr || length <= 0) {
+        return;
+    }
+    s_SeamlessIconBytes.insert(iconHash, QByteArray(reinterpret_cast<const char*>(data), length));
     qInfo() << "Seamless icon hash" << QString::number(iconHash, 16) << "length" << length;
+}
+
+/// Registers the provider the QML engine serves image://seamlessicon/<hash> from.
+void RegisterSeamlessIconProvider(QQmlEngine *engine);
+
+/// Serves the host's icons to QML as image://seamlessicon/<hash>.
+class SeamlessIconProvider : public QQuickImageProvider
+{
+public:
+    SeamlessIconProvider() : QQuickImageProvider(QQuickImageProvider::Image) {}
+
+    QImage requestImage(const QString& id, QSize* size, const QSize& requestedSize) override
+    {
+        Q_UNUSED(requestedSize);
+
+        bool ok = false;
+        const quint32 hash = id.toUInt(&ok, 16);
+        QByteArray bytes;
+        if (!ok || !SeamlessIconBytes(hash, bytes)) {
+            if (size != nullptr) {
+                *size = QSize();
+            }
+            return {};
+        }
+
+        QImage image;
+        if (bytes.startsWith("\x89PNG")) {
+            image = QImage::fromData(bytes, "PNG");
+        }
+        else if (bytes.size() == 32 * 32 * 4) {
+            // 32 by 32 raw BGRA: the shape the uplink sends.
+            image = QImage(reinterpret_cast<const uchar*>(bytes.constData()), 32, 32, 32 * 4,
+                           QImage::Format_ARGB32).copy();
+        }
+
+        if (size != nullptr) {
+            *size = image.size();
+        }
+        return image;
+    }
+};
+
+void RegisterSeamlessIconProvider(QQmlEngine *engine)
+{
+    if (engine != nullptr) {
+        engine->addImageProvider(QStringLiteral("seamlessicon"), new SeamlessIconProvider());
+    }
 }
 
 static void seamlessLogCaret(uint8_t windowId, int16_t x, int16_t y, uint16_t height, void* context)
@@ -775,9 +871,11 @@ bool Session::initialize(QQuickWindow* qtWindow)
     SDL_StopTextInput();
 
     LiInitializeStreamConfiguration(&m_StreamConfig);
-    // The channel is off unless it is forced on for a test run. A later stage
-    // replaces this with a preference; this stage must change nothing by itself.
-    m_StreamConfig.enableSeamless = (qEnvironmentVariableIntValue("MOONLIGHT_SEAMLESS") != 0);
+    // The channel follows the Seamless Windows setting of the page: the page is
+    // the only way in, and the setting is what the page entry honours. The
+    // environment variable stays as an explicit test override only.
+    m_StreamConfig.enableSeamless = m_Preferences->uiSeamlessPage ||
+            (qEnvironmentVariableIntValue("MOONLIGHT_SEAMLESS") != 0);
     if (m_StreamConfig.enableSeamless) {
         qInfo() << "Seamless window channel: asking the host for the capability";
     }
@@ -1885,6 +1983,7 @@ bool Session::startConnectionAsync()
                                                                          false);
     }
 
+    g_SeamlessAppName = m_App.name;
     if (g_SeamlessModel == nullptr) {
         g_SeamlessModel = new SeamlessModel(QCoreApplication::instance());
     }

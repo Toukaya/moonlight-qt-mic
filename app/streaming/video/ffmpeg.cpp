@@ -2,6 +2,8 @@
 #include "ffmpeg.h"
 #include "utils.h"
 #include "streaming/session.h"
+#include "streaming/seamless/seamlessmodel.h"
+#include "streaming/seamless/seamlessinstruments.h"
 
 #include <h264_stream.h>
 
@@ -1862,7 +1864,16 @@ void FFmpegVideoDecoder::decoderThreadProc()
                 continue;
             }
 
-            LiCompleteVideoFrame(handle, submitDecodeUnit(du));
+            {
+                // The table is applied at the frame boundary and nowhere else:
+                // the decode unit we just handed to the decoder IS that boundary,
+                // so the newest published table becomes the drawn one here.
+                const uint32_t seamlessFrameNumber = du->frameNumber;
+                LiCompleteVideoFrame(handle, submitDecodeUnit(du));
+                if (SeamlessModel *seamlessModel = GetSeamlessModel()) {
+                    seamlessModel->onFrame(seamlessFrameNumber);
+                }
+            }
         }
 
         if (m_FramesIn != m_FramesOut) {
@@ -2049,7 +2060,11 @@ void FFmpegVideoDecoder::decoderThreadProc()
                     // while we're waiting for this to frame to come back.
                     if (LiPollNextVideoFrame(&handle, &du)) {
                         // FIXME: Handle EAGAIN on avcodec_send_packet() properly?
+                        const uint32_t seamlessFrameNumber = du->frameNumber;
                         LiCompleteVideoFrame(handle, submitDecodeUnit(du));
+                        if (SeamlessModel *seamlessModel = GetSeamlessModel()) {
+                            seamlessModel->onFrame(seamlessFrameNumber);
+                        }
                     }
                     else {
                         // No output data or input data. Let's wait a little bit.
@@ -2126,9 +2141,32 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
             addVideoStats(m_LastWndVideoStats, lastTwoWndStats);
             addVideoStats(m_ActiveWndVideoStats, lastTwoWndStats);
 
-            stringifyVideoStats(lastTwoWndStats,
-                                Session::get()->getOverlayManager().getOverlayText(Overlay::OverlayDebug),
-                                Session::get()->getOverlayManager().getOverlayMaxTextLength());
+            char *overlayText = Session::get()->getOverlayManager().getOverlayText(Overlay::OverlayDebug);
+            const int overlayMax = Session::get()->getOverlayManager().getOverlayMaxTextLength();
+            stringifyVideoStats(lastTwoWndStats, overlayText, overlayMax);
+
+            // The seamless block, appended to the existing statistics overlay and
+            // only for a session that negotiated the channel - the model object
+            // exists for every session, the flag does not. Fed by the same
+            // instruments that log.
+            if (Session::isSeamlessActive()) {
+                char block[192];
+                SDL_snprintf(block, sizeof(block),
+                             "windows: %d\n"
+                             "in-flight: %u\n"
+                             "gpu-pass: %.3f ms\n"
+                             "drawable: %dx%d @ %.2fx\n",
+                             seamless_instruments::windowCount.load(),
+                             (unsigned) ((lastTwoWndStats.receivedFrames > lastTwoWndStats.renderedFrames)
+                                             ? (lastTwoWndStats.receivedFrames - lastTwoWndStats.renderedFrames)
+                                             : 0u),
+                             seamless_instruments::gpuPassUs.load() / 1000.0,
+                             seamless_instruments::drawableW.load(),
+                             seamless_instruments::drawableH.load(),
+                             seamless_instruments::drawableScaleX100.load() / 100.0);
+                const size_t used = SDL_strlen(overlayText);
+                SDL_strlcpy(overlayText + used, block, (size_t) overlayMax - used);
+            }
             Session::get()->getOverlayManager().setOverlayTextUpdated(Overlay::OverlayDebug);
         }
 

@@ -42,7 +42,7 @@ win32 {
 
     contains(QT_ARCH, x86_64) {
         LIBS += -L$$PWD/../libs/windows/lib/x64
-        INCLUDEPATH += $$PWD/../libs/windows/include/x64 $$PWD/../libs/windows/include/x64/SDL2
+INCLUDEPATH += $$PWD/../libs/windows/include/x64 $$PWD/../libs/windows/include/x64/SDL2
     }
     contains(QT_ARCH, arm64) {
         LIBS += -L$$PWD/../libs/windows/lib/arm64
@@ -198,6 +198,8 @@ SOURCES += \
     streaming/audio/audio.cpp \
     streaming/audio/capture/microphonecapture.cpp \
     streaming/seamless/seamlessmodel.cpp \
+    streaming/seamless/seamlesswindowsmodel.cpp \
+    streaming/seamless/seamlesspresenter.mm \
     streaming/audio/renderers/sdlaud.cpp \
     gui/computermodel.cpp \
     gui/appmodel.cpp \
@@ -239,6 +241,9 @@ HEADERS += \
     streaming/session.h \
     streaming/audio/capture/microphonecapture.h \
     streaming/seamless/seamlessmodel.h \
+    streaming/seamless/seamlesswindowsmodel.h \
+    streaming/seamless/seamlesswindow.h \
+    streaming/seamless/seamlesspresenter.h \
     streaming/audio/renderers/renderer.h \
     streaming/audio/renderers/sdl.h \
     gui/computermodel.h \
@@ -420,7 +425,8 @@ macx {
     SOURCES += \
         streaming/video/ffmpeg-renderers/vt_base.mm \
         streaming/video/ffmpeg-renderers/vt_avsamplelayer.mm \
-        streaming/video/ffmpeg-renderers/vt_metal.mm
+        streaming/video/ffmpeg-renderers/vt_metal.mm \
+        streaming/seamless/seamlesswindow.mm
 
     HEADERS += \
         streaming/video/ffmpeg-renderers/vt.h
@@ -505,6 +511,7 @@ win32:CONFIG(release, debug|release): LIBS += -L$$OUT_PWD/../moonlight-common-c/
 else:win32:CONFIG(debug, debug|release): LIBS += -L$$OUT_PWD/../moonlight-common-c/debug/ -lmoonlight-common-c
 else:unix: LIBS += -L$$OUT_PWD/../moonlight-common-c/ -lmoonlight-common-c
 
+INCLUDEPATH += $$PWD
 INCLUDEPATH += $$PWD/../moonlight-common-c/moonlight-common-c/src
 DEPENDPATH += $$PWD/../moonlight-common-c/moonlight-common-c/src
 

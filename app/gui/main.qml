@@ -235,6 +235,15 @@ ApplicationWindow {
 
     header: ToolBar {
         id: toolBar
+
+        // The Seamless Windows page carries the app's dark surface on the
+        // header; the classic routes keep the default Material background
+        Rectangle {
+            anchors.fill: parent
+            visible: stackView.currentItem instanceof LibraryView
+            color: "#303030"
+        }
+
         height: 60
         anchors.topMargin: 5
         anchors.bottomMargin: 5
@@ -244,6 +253,7 @@ ApplicationWindow {
             visible: toolBar.width > 700
             anchors.fill: parent
             text: stackView.currentItem.objectName
+            color: (stackView.currentItem instanceof LibraryView) ? "#cccccc" : undefined
             font.pointSize: 20
             elide: Label.ElideRight
             horizontalAlignment: Qt.AlignHCenter

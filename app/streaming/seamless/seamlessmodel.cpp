@@ -5,13 +5,44 @@
 #include "seamlessmodel.h"
 
 #include <QDebug>
+
+#include "seamlesspresenter.h"
+
+namespace {
+  // One session runs at a time, so one flag is enough; it is set at launch and
+  // cleared when the session ends.
+  bool g_SeamlessPresentationMode = false;
+}
+
+void SeamlessSetPresentationMode(bool enabled)
+{
+    if (g_SeamlessPresentationMode != enabled) {
+        g_SeamlessPresentationMode = enabled;
+        // The mode is a property of one session; the line names the change so the
+        // log shows when a session is presenting per window and when it stopped.
+        qInfo() << "Seamless: presentation mode" << (enabled ? "on" : "off");
+        if (!enabled) {
+            // The mode owns the local windows: they go with it.
+            seamless_presenter::shutdown();
+        }
+    }
+}
+
+bool SeamlessPresentationMode()
+{
+    return g_SeamlessPresentationMode;
+}
+
+#include <algorithm>
+
+#include <QDebug>
 #include <QMutexLocker>
 
 SeamlessModel::SeamlessModel(QObject* parent) : QObject(parent)
 {
 }
 
-void SeamlessModel::onTable(quint8 seq, quint16 canvasW, quint16 canvasH,
+void SeamlessModel::onTable(quint8 seq, quint8 kind, quint16 canvasW, quint16 canvasH,
                             qint16 workAreaX, qint16 workAreaY, quint16 workAreaW, quint16 workAreaH,
                             const WindowEntry* entries, int count)
 {
@@ -26,6 +57,7 @@ void SeamlessModel::onTable(quint8 seq, quint16 canvasW, quint16 canvasH,
     QMutexLocker locker(&m_Lock);
 
     m_Pending = QVector<WindowEntry>(entries, entries + count);
+    m_PendingKind = kind;
     m_PendingSeq = seq;
     m_PendingCanvasW = canvasW;
     m_PendingCanvasH = canvasH;
@@ -50,6 +82,7 @@ void SeamlessModel::onFrame(quint32 frameId)
 void SeamlessModel::applyPending()
 {
     QVector<WindowEntry> pending;
+    quint8 pendingKind = SEAMLESS_TABLE_SNAPSHOT;
     quint8 pendingSeq = 0;
     quint16 pendingCanvasW = 0;
     quint16 pendingCanvasH = 0;
@@ -70,6 +103,7 @@ void SeamlessModel::applyPending()
 
         m_HasPending = false;
         pending = m_Pending;
+        pendingKind = m_PendingKind;
         pendingSeq = m_PendingSeq;
         pendingCanvasW = m_PendingCanvasW;
         pendingCanvasH = m_PendingCanvasH;
@@ -79,25 +113,101 @@ void SeamlessModel::applyPending()
         workH = m_WorkH;
     }
 
-    const bool canvasMoved = (m_CanvasW != pendingCanvasW) || (m_CanvasH != pendingCanvasH);
+    QVector<WindowEntry> applied;
+    quint16 canvasW = pendingCanvasW;
+    quint16 canvasH = pendingCanvasH;
 
-    m_Windows = pending;
-    m_CanvasW = pendingCanvasW;
-    m_CanvasH = pendingCanvasH;
-    m_WorkX = workX;
-    m_WorkY = workY;
-    m_WorkW = workW;
-    m_WorkH = workH;
-    m_AppliedSeq = pendingSeq;
-    m_AppliedCount = m_Windows.size();
+    if (pendingKind == SEAMLESS_TABLE_DELTA) {
+        // A delta changes entries of the table the client holds. The canvas is
+        // the one the last snapshot named: the delta header does not repeat it,
+        // so the decoder gives it as zero and it must not overwrite the held one.
+        if (!mergeDelta(m_Windows, pending, &applied)) {
+            // The delta names a window this client does not hold, so it cannot be
+            // applied. Saying APPLIED here would be a lie on the wire that the
+            // host would never repair, because a geometry-only change never
+            // forces a snapshot. The host turns a rejection into one.
+            m_LastAckSeq = pendingSeq;
+            m_LastAckResult = SEAMLESS_ACK_REJECTED;
+            qWarning() << "Seamless: delta" << pendingSeq
+                       << "rejected, it names a window the applied table does not hold";
+            LiSendWindowAck(pendingSeq, SEAMLESS_ACK_REJECTED);
+            return;
+        }
 
-    qInfo() << "Seamless: table" << m_AppliedSeq << "applied at a frame boundary,"
+        canvasW = m_CanvasW;
+        canvasH = m_CanvasH;
+    }
+    else {
+        applied = pending;
+    }
+
+    // The apply point and the acknowledgement timing are unchanged; the lock is
+    // only here because a render thread takes a snapshot of this state while the
+    // frame thread replaces it.
+    {
+        QMutexLocker locker(&m_Lock);
+        m_Windows = applied;
+        m_CanvasW = canvasW;
+        m_CanvasH = canvasH;
+        m_WorkX = workX;
+        m_WorkY = workY;
+        m_WorkW = workW;
+        m_WorkH = workH;
+        m_AppliedSeq = pendingSeq;
+        m_AppliedCount = m_Windows.size();
+    }
+
+    qInfo() << "Seamless: table" << m_AppliedSeq
+            << (pendingKind == SEAMLESS_TABLE_DELTA ? "delta" : "snapshot")
+            << "applied at a frame boundary,"
             << m_AppliedCount << "windows, canvas" << m_CanvasW << "x" << m_CanvasH
             << "work area" << m_WorkX << m_WorkY << m_WorkW << m_WorkH;
 
     // Only now does the host learn that this version can be superseded.
+    m_LastAckSeq = m_AppliedSeq;
+    m_LastAckResult = SEAMLESS_ACK_APPLIED;
     LiSendWindowAck(m_AppliedSeq, SEAMLESS_ACK_APPLIED);
+    // The end-to-end ack line: what this client actually sent, so the host line
+    // can be matched against it.
+    qInfo() << "Seamless: ack sent seq" << m_AppliedSeq << "result" << (int) SEAMLESS_ACK_APPLIED
+            << "windows" << m_AppliedCount;
 
-    Q_UNUSED(canvasMoved);
     emit windowsChanged();
+}
+
+SeamlessModel::TableView SeamlessModel::snapshotTable() const
+{
+    QMutexLocker locker(&m_Lock);
+    TableView view;
+    view.windows = m_Windows;
+    view.canvasW = m_CanvasW;
+    view.canvasH = m_CanvasH;
+    return view;
+}
+
+bool SeamlessModel::mergeDelta(const QVector<WindowEntry>& held, const QVector<WindowEntry>& changed,
+                               QVector<WindowEntry>* merged)
+{
+    QVector<WindowEntry> result = held;
+
+    for (const auto& entry : changed) {
+        bool found = false;
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i].id == entry.id) {
+                result[i] = entry;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return false;
+        }
+    }
+
+    // The wire carries one z per entry, and the draw order is the table's.
+    std::sort(result.begin(), result.end(),
+              [](const WindowEntry& a, const WindowEntry& b) { return a.z < b.z; });
+
+    *merged = result;
+    return true;
 }

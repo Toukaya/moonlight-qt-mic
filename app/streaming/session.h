@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QByteArray>
 #include <QSemaphore>
 #include <QQuickWindow>
 
@@ -15,6 +16,23 @@ class MicrophoneCapture;
 class ClipboardManager;
 class NvHTTP;
 class QuickMenuManager;
+class SeamlessModel;
+
+// The launched app's name for the seamless page: the table is scoped to it.
+QString SeamlessSessionAppName();
+
+// The icon bytes the host sent for a hash, if it has sent them yet.
+bool SeamlessIconBytes(quint32 iconHash, QByteArray& out);
+
+// The image provider the page loads icons through.
+class QQmlEngine;
+void RegisterSeamlessIconProvider(QQmlEngine *engine);
+
+// The window table the seamless page draws with, or nullptr when the session did
+// not open the channel. The renderer reads it on the frame thread; the model
+// guards its own handoff.
+SeamlessModel *GetSeamlessModel();
+
 
 class SupportedVideoFormatList : public QList<int>
 {
@@ -97,6 +115,15 @@ public:
 class Session : public QObject
 {
     Q_OBJECT
+
+public:
+    // The negotiated seamless flag of the active session: false for every session
+    // that did not ask for the channel, which is every session by default.
+    static bool isSeamlessActive();
+
+    // The app this session launched: the seamless table is scoped to it, so its
+    // name is what the running-window list shows as each window's title.
+    QString appName() const;
 
     friend class SdlInputHandler;
     friend class DeferredSessionCleanupTask;

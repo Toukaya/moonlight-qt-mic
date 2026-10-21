@@ -55,6 +55,7 @@
 #include "backend/systemproperties.h"
 #include "settings/artemissettings.h"
 #include "streaming/session.h"
+#include "streaming/seamless/seamlesswindowsmodel.h"
 #include "settings/streamingpreferences.h"
 #include "gui/sdlgamepadkeynavigation.h"
 
@@ -936,6 +937,7 @@ int main(int argc, char *argv[])
     // Register our C++ types for QML
     qmlRegisterType<ComputerModel>("ComputerModel", 1, 0, "ComputerModel");
     qmlRegisterType<AppModel>("AppModel", 1, 0, "AppModel");
+    qmlRegisterType<SeamlessWindowsModel>("SeamlessWindowsModel", 1, 0, "SeamlessWindowsModel");
     qmlRegisterUncreatableType<Session>("Session", 1, 0, "Session", "Session cannot be created from QML");
     qmlRegisterSingletonType<ComputerManager>("ComputerManager", 1, 0,
                                               "ComputerManager",
@@ -998,6 +1000,8 @@ int main(int argc, char *argv[])
     }
 
     QQmlApplicationEngine engine;
+    // The seamless icons reach QML as image://seamlessicon/<hash>.
+    RegisterSeamlessIconProvider(&engine);
     QString initialView;
     bool hasGUI = true;
 

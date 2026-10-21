@@ -31,6 +31,11 @@ public:
 
     virtual QHash<int, QByteArray> roleNames() const override;
 
+    // The page selects its first device as soon as the list arrives, so it
+    // never opens on an empty grid: these two answer what the rail shows.
+    Q_INVOKABLE int computerCount();
+    Q_INVOKABLE QString computerName(int computerIndex);
+
     Q_INVOKABLE void deleteComputer(int computerIndex);
 
     Q_INVOKABLE QString generatePinString();

@@ -39,6 +39,7 @@
 #define SER_CONNWARNINGS "connwarnings"
 #define SER_CONFWARNINGS "confwarnings"
 #define SER_UIDISPLAYMODE "uidisplaymode"
+#define SER_SEAMLESSPAGE "seamlesspage"
 #define SER_RICHPRESENCE "richpresence"
 #define SER_GAMEPADMOUSE "gamepadmouse"
 #define SER_DEFAULTVER "defaultver"
@@ -193,6 +194,7 @@ void StreamingPreferences::reload()
                                                                                                                  : UIDisplayMode::UI_MAXIMIZED)).toInt());
     language = static_cast<Language>(settings.value(SER_LANGUAGE,
                                                     static_cast<int>(Language::LANG_AUTO)).toInt());
+    uiSeamlessPage = settings.value(SER_SEAMLESSPAGE, true).toBool();
 
 
     // Perform default settings updates as required based on last default version
@@ -379,6 +381,7 @@ void StreamingPreferences::save()
     settings.setValue(SER_RENDERER, static_cast<int>(rendererSelection));
     settings.setValue(SER_WINDOWMODE, static_cast<int>(windowMode));
     settings.setValue(SER_UIDISPLAYMODE, static_cast<int>(uiDisplayMode));
+    settings.setValue(SER_SEAMLESSPAGE, uiSeamlessPage);
     settings.setValue(SER_LANGUAGE, static_cast<int>(language));
     settings.setValue(SER_DEFAULTVER, CURRENT_DEFAULT_VER);
     settings.setValue(SER_SWAPMOUSEBUTTONS, swapMouseButtons);
