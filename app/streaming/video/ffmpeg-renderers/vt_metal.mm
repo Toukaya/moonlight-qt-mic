@@ -588,6 +588,17 @@ public:
         }
 
         seamless_instruments::windowCount.store((int) wins.size());
+        // The created count, printed when it changes: this runs at the draw rate
+        // and a per-frame line would bury the log.
+        {
+            static size_t lastCreated = (size_t) -1;
+            if (m_SeamlessWindows.size() != lastCreated) {
+                lastCreated = m_SeamlessWindows.size();
+                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                            "Seamless: %zu local windows created (table %zu)",
+                            m_SeamlessWindows.size(), wins.size());
+            }
+        }
         const CGSize canvas = CGSizeMake(view.canvasW, view.canvasH);
         for (size_t index = 0; index < wins.size(); index++) {
             const auto &entry = wins[index];
@@ -817,6 +828,15 @@ public:
         // stream still runs, it is what feeds the compose above.
         if (SeamlessModel *seamlessModel = GetSeamlessModel();
             seamlessModel != nullptr && !seamlessModel->snapshotTable().windows.isEmpty()) {
+            // The desktop surface is not presented while a window table drives
+            // the session. Printed when that state is entered, not per frame.
+            static bool desktopSkipped = false;
+            if (!desktopSkipped) {
+                desktopSkipped = true;
+                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                            "Seamless: desktop not presented, %zu windows drive the presentation",
+                            seamlessModel->snapshotTable().windows.size());
+            }
             return;
         }
 
