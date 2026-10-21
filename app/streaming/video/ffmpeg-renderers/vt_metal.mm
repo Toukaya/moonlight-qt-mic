@@ -577,9 +577,34 @@ public:
             const auto &entry = wins[index];
             auto it = m_SeamlessWindows.find(entry.id);
             if (it == m_SeamlessWindows.end()) {
-                SeamlessWindow *window = [[SeamlessWindow alloc] initWithWindowId:entry.id
-                                                                           device:m_MetalLayer.device];
+                // AppKit requires window creation on the main thread: this render
+                // thread asks the main queue to build it and waits for the result.
+                // The creation is wrapped, so a failure degrades to "no window"
+                // instead of aborting the process.
+                __block SeamlessWindow *window = nil;
+                __block QString failure;
+                dispatch_block_t create = ^{
+                    @try {
+                        window = [[SeamlessWindow alloc] initWithWindowId:entry.id
+                                                                   device:m_MetalLayer.device];
+                    }
+                    @catch (NSException *exception) {
+                        failure = QString::fromNSString(exception.name) + QStringLiteral(": ") +
+                                  QString::fromNSString(exception.reason);
+                        window = nil;
+                    }
+                };
+                if ([NSThread isMainThread]) {
+                    create();
+                }
+                else {
+                    dispatch_sync(dispatch_get_main_queue(), create);
+                }
                 if (window == nil) {
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                                 "Seamless: window %u was not created%s%s",
+                                 (unsigned) entry.id, failure.isEmpty() ? "" : ": ",
+                                 failure.toUtf8().constData());
                     continue;
                 }
                 m_SeamlessWindows[entry.id] = window;
