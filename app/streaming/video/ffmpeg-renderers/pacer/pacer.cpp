@@ -1,4 +1,6 @@
 #include "pacer.h"
+
+#include "streaming/seamless/seamlesspresenter.h"
 #include "streaming/streamutils.h"
 
 #ifdef Q_OS_WIN32
@@ -345,6 +347,15 @@ void Pacer::renderFrame(AVFrame* frame)
 
     // Render it
     m_VsyncRenderer->renderFrame(frame);
+
+    // The seamless presentation bridge draws the same frame into one local window
+    // per remote window, through its own unmodified renderer instances. It is a
+    // no-op unless a session started from the Seamless Windows page created them,
+    // and it runs on the same thread as the session renderer above.
+    if (SeamlessPresentationMode()) {
+        seamless_presenter::syncFromModel();
+        seamless_presenter::present(frame);
+    }
     uint64_t afterRender = LiGetMicroseconds();
 
     m_VideoStats->totalRenderTimeUs += (afterRender - beforeRender);
