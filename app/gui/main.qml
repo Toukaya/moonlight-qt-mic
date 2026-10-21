@@ -430,12 +430,12 @@ ApplicationWindow {
                 visible: stackView.currentItem instanceof PcView
                          && StreamingPreferences.uiSeamlessPage
 
-                text: qsTr("Seamless Windows")
+                iconSource: "qrc:/res/desktop_windows-48px.svg"
 
                 ToolTip.delay: 1000
                 ToolTip.timeout: 5000
                 ToolTip.visible: hovered
-                ToolTip.text: qsTr("Open the Seamless Windows page")
+                ToolTip.text: qsTr("Seamless Windows")
 
                 onClicked: navigateTo("qrc:/gui/LibraryView.qml", LibraryView)
 
