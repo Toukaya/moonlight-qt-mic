@@ -44,13 +44,17 @@ CenteredGridView {
     // The host page is a per-host destination and THE entry: it carries the two
     // tabs (Desktop mode, Seamless Windows). There is no menu item and no toolbar
     // button for it - the tab is the entry.
-    function openHostPage(hostIndex, hostName) {
+    function openHostPage(hostIndex, hostName, showHiddenGames) {
         var component = Qt.createComponent("HostPage.qml")
         if (component.status !== Component.Ready) {
             console.log("[host-page] push failed: " + component.errorString())
             return
         }
-        var page = component.createObject(stackView, {"computerIndex": hostIndex, "hostName": hostName})
+        var page = component.createObject(stackView, {
+            "computerIndex": hostIndex,
+            "hostName": hostName,
+            "showHiddenGames": showHiddenGames === true
+        })
         stackView.push(page)
     }
 
@@ -187,11 +191,10 @@ CenteredGridView {
                 }
                 NavigableMenuItem {
                     text: qsTr("View All Apps")
-                    onTriggered: {
-                        var component = Qt.createComponent("AppView.qml")
-                        var appView = component.createObject(stackView, {"computerIndex": index, "objectName": model.name, "showHiddenGames": true})
-                        stackView.push(appView)
-                    }
+                    // The entry is the host page: View All Apps opens it on the
+                    // Desktop mode tab, where the existing grid and launch path
+                    // live unchanged.
+                    onTriggered: root.openHostPage(index, model.name, true)
                     visible: model.online && model.paired
                 }
                 NavigableMenuItem {
@@ -241,10 +244,10 @@ CenteredGridView {
                     errorDialog.open()
                 }
                 else if (model.paired) {
-                    // go to game view
-                    var component = Qt.createComponent("AppView.qml")
-                    var appView = component.createObject(stackView, {"computerIndex": index, "objectName": model.name})
-                    stackView.push(appView)
+                    // The host page is the second level: it carries the two tabs
+                    // (Desktop mode, Seamless Windows). Nothing creates AppView
+                    // directly any more.
+                    root.openHostPage(index, model.name, false)
                 }
                 else {
                     var pin = computerModel.generatePinString()
