@@ -1,5 +1,6 @@
 #include "computerseeker.h"
 #include "computermanager.h"
+#include <QHostAddress>
 #include <QTimer>
 
 ComputerSeeker::ComputerSeeker(ComputerManager *manager, QString computerName, QObject *parent)
@@ -22,6 +23,21 @@ ComputerSeeker::ComputerSeeker(ComputerManager *manager, QString computerName, Q
 void ComputerSeeker::start(int timeout)
 {
     m_TimeoutTimer->start(timeout);
+
+    // A literal address needs no discovery: poll that host directly instead of
+    // spending the timeout on an mDNS browser.
+    const QHostAddress literal(m_ComputerName);
+    if (!literal.isNull() && literal.protocol() == QAbstractSocket::IPv4Protocol) {
+        if (!findMatchingComputer()) {
+            m_ComputerManager->addNewHostManually(m_ComputerName);
+        }
+        NvComputer *computer = findMatchingComputer();
+        if (computer != nullptr) {
+            m_ComputerManager->startPollingDirect();
+            m_ComputerManager->pollComputerDirectly(computer);
+            return;
+        }
+    }
 
     // If we don't know this computer by name, address, or UUID, try adding it
     // manually and see if we can find it by address, hostname, or mDNS.

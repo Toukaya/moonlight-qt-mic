@@ -393,6 +393,18 @@ void ComputerManager::startPolling()
 }
 
 // Must hold m_Lock for write
+void ComputerManager::startPollingDirect()
+{
+    QWriteLocker lock(&m_Lock);
+
+    if (++m_PollingRef > 1) {
+        return;
+    }
+
+    // Deliberately no mDNS server and no browser: a literal address is polled
+    // directly by the caller.
+}
+
 void ComputerManager::startPollingComputer(NvComputer* computer)
 {
     if (m_PollingRef == 0) {
