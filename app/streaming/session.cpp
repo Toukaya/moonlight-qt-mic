@@ -70,6 +70,15 @@ SeamlessModel *GetSeamlessModel()
     return g_SeamlessModel;
 }
 
+// Set where the session is created, so the page model can name the launched app
+// without reaching into the session's private state.
+static QString g_SeamlessAppName;
+
+QString SeamlessSessionAppName()
+{
+    return g_SeamlessAppName;
+}
+
 QString Session::appName() const
 {
     return m_App.name;
@@ -1972,6 +1981,7 @@ bool Session::startConnectionAsync()
                                                                          false);
     }
 
+    g_SeamlessAppName = m_App.name;
     if (g_SeamlessModel == nullptr) {
         g_SeamlessModel = new SeamlessModel(QCoreApplication::instance());
     }

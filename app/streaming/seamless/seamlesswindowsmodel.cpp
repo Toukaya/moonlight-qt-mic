@@ -4,14 +4,13 @@
  */
 #include "seamlesswindowsmodel.h"
 
-#include "streaming/session.h"
 
 #include <QDebug>
 
-SeamlessWindowsModel::SeamlessWindowsModel(QObject* parent)
-    : QAbstractListModel(parent)
+SeamlessWindowsModel::SeamlessWindowsModel(QObject* parent, SeamlessModel* source)
+    : QAbstractListModel(parent),
+      m_Source(source != nullptr ? source : GetSeamlessModel())
 {
-    m_Source = GetSeamlessModel();
     if (m_Source != nullptr) {
         // The table is applied on the frame thread; the rebuild is a queued
         // connection so the rows are replaced on the thread that owns this model.
@@ -70,11 +69,7 @@ QHash<int, QByteArray> SeamlessWindowsModel::roleNames() const
 void SeamlessWindowsModel::onWindowsChanged()
 {
     QVector<Row> rows;
-    QString appTitle;
-
-    if (Session* session = Session::get()) {
-        appTitle = session->appName();
-    }
+    const QString appTitle = SeamlessSessionAppName();
 
     if (m_Source != nullptr) {
         const SeamlessModel::TableView view = m_Source->snapshotTable();

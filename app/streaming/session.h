@@ -18,6 +18,9 @@ class NvHTTP;
 class QuickMenuManager;
 class SeamlessModel;
 
+// The launched app's name for the seamless page: the table is scoped to it.
+QString SeamlessSessionAppName();
+
 // The icon bytes the host sent for a hash, if it has sent them yet.
 bool SeamlessIconBytes(quint32 iconHash, QByteArray& out);
 

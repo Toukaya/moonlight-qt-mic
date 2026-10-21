@@ -14,6 +14,14 @@
 
 #include "seamlessmodel.h"
 
+// Provided by the session: the launched app's name and the icon bytes the host
+// sent. Declared here so this model (and a headless test of it) does not need the
+// whole session header.
+class QByteArray;
+SeamlessModel* GetSeamlessModel();
+QString SeamlessSessionAppName();
+bool SeamlessIconBytes(quint32 iconHash, QByteArray& out);
+
 class SeamlessWindowsModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -35,7 +43,8 @@ public:
     };
     Q_ENUM(Role)
 
-    explicit SeamlessWindowsModel(QObject* parent = nullptr);
+    // source defaults to the session's live model; a test can hand in its own.
+    explicit SeamlessWindowsModel(QObject* parent = nullptr, SeamlessModel* source = nullptr);
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
     QVariant data(const QModelIndex& index, int role) const override;
