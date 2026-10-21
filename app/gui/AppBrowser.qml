@@ -192,6 +192,7 @@ Rectangle {
             delegate: AppTile {
                 grid: tileGrid
                 appIndex: index
+                appId: model.appId
                 appName: model.name
                 appRunning: model.running
                 appBusy: model.busy

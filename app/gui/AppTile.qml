@@ -23,6 +23,7 @@ NavigableItemDelegate {
     property bool appBusy: false
     property string boxartSource: ""
     property int appIndex: 0
+    property string appId: ""
 
     signal appRequested(int appIndex, string appName, string appId)
     // The right-click tile menu's three actions: each carries the same identity
