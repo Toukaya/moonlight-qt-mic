@@ -17,6 +17,7 @@
 
 import QtQuick 2.9
 import QtQuick.Controls 2.2
+import QtQuick.Window 2.2
 
 Item {
     id: root
@@ -25,7 +26,7 @@ Item {
     property string iconSource: ""
     // The app list boxart role (AppView.qml: model.boxart)
     property string boxartSource: ""
-    // App title, used by the loading-only letter tile
+    // App title; names the letter tile shown while an image loads
     property string title: ""
     // The deliberate no-icon face: the app's own placeholder asset
     property string placeholderSource: "qrc:/res/no_app_image.png"
@@ -34,6 +35,9 @@ Item {
         id: pix
         anchors.fill: parent
         fillMode: Image.PreserveAspectFit
+        // Decode at the screen scale so the placeholder stays crisp on 2x
+        sourceSize.width: Math.round(width * Screen.devicePixelRatio)
+        sourceSize.height: Math.round(height * Screen.devicePixelRatio)
         // Source order: boxart, then window icon; empty or failed sources
         // fall back to the placeholder, so the letter tile only ever covers
         // the Loading window
