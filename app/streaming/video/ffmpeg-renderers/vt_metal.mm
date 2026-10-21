@@ -549,6 +549,8 @@ public:
         // One lock, one version: the table and its canvas travel together, so a
         // render thread can never pair N+1 cells with N canvas.
         const SeamlessModel::TableView view = model->snapshotTable();
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Seamless: sync entry model=%p table=%d canvas=%ux%u",
+                    (void *) model, (int) view.windows.size(), view.canvasW, view.canvasH);
         const auto &wins = view.windows;
 
         for (auto it = m_SeamlessWindows.begin(); it != m_SeamlessWindows.end();) {
@@ -760,6 +762,12 @@ public:
 
     virtual void renderFrameIntoDrawable(AVFrame* frame, id<CAMetalDrawable> drawable)
     { @autoreleasepool {
+        // The seamless windows are created and drawn where the renderer actually
+        // presents a frame, not where the decoder hands one over: the table and
+        // the frame travel together, and the state is read before anything frees.
+        syncSeamlessWindows();
+        renderSeamlessWindows(frame);
+
         std::array<CVMetalTextureRef, MAX_VIDEO_PLANES> cvMetalTextures;
         size_t planes = getFramePlaneCount(frame);
         SDL_assert(planes <= MAX_VIDEO_PLANES);
@@ -896,11 +904,6 @@ public:
             SDL_PushEvent(&event);
             return;
         }
-
-        // The seamless page's windows are drawn from the same frame the stream
-        // window gets, once per decoded frame, whatever drives the stream window.
-        syncSeamlessWindows();
-        renderSeamlessWindows(frame);
 
         // Start the display link if necessary
         startDisplayLink();
