@@ -40,7 +40,7 @@ Item {
             text: qsTr("Desktop mode")
             font.pointSize: 13
             height: tabBar.height
-            width: Math.max(160, tabBar.width / 2)
+            width: tabBar.width / 2
             contentItem: Label {
                 text: desktopTab.text
                 font: desktopTab.font
@@ -66,7 +66,7 @@ Item {
             text: qsTr("Seamless Windows")
             font.pointSize: 13
             height: tabBar.height
-            width: Math.max(160, tabBar.width / 2)
+            width: tabBar.width / 2
             contentItem: Label {
                 text: seamlessTab.text
                 font: seamlessTab.font
