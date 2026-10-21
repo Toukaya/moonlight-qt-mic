@@ -25,6 +25,11 @@ Item {
     // computer list, set by picking a device in the rail
     property int computerIndex: -1
     property string hostName: ""
+
+    // Pushed with the host bound (the per-host destination): the entry passes
+    // these, and construction binds immediately - the page never asks a global
+    // question and never renders the "no apps" state without a host.
+    property int hostIndex: -1
     property string errorText: ""
 
     // The real devices (ComputerModel) and the real app list of the picked
@@ -121,6 +126,18 @@ Item {
 
     // The rail rows rebuild from the real models
     Component.onCompleted: {
+        if (hostIndex >= 0) {
+            root.selectHost(hostIndex, root.hostName)
+        }
+        else {
+            // Constructed without a host: this page is a per-host destination,
+            // so it leaves for the device list instead of pretending emptiness.
+            console.log("[seamless-page] no host bound, returning to the device list")
+            if (typeof stackView !== "undefined" && stackView) {
+                stackView.pop()
+            }
+            return
+        }
         // ComputerManager is a context property of the app; the typeof
         // guard keeps the page loadable where it is absent. The rail
         // rebuilds itself when the models change

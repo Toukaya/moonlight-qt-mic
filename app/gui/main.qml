@@ -443,7 +443,16 @@ ApplicationWindow {
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Seamless Windows")
 
-                onClicked: navigateTo("qrc:/gui/LibraryView.qml", LibraryView)
+                // Opens the page for the host selected in PcView, the same
+                // per-host destination the context menu pushes. Hidden while no
+                // host is selected: the page has nothing to bind without one.
+                visible: stackView.currentItem instanceof PcView
+                         && stackView.currentItem.currentIndex >= 0
+                onClicked: {
+                    var pc = stackView.currentItem
+                    var hostIndex = pc.currentIndex
+                    pc.openSeamlessPage(hostIndex, pc.seamlessHostName(hostIndex))
+                }
 
                 Keys.onDownPressed: {
                     stackView.currentItem.forceActiveFocus(Qt.TabFocus)

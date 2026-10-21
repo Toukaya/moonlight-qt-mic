@@ -40,6 +40,23 @@ CenteredGridView {
         }
     }
 
+    // The page is a per-host destination: it is pushed WITH the host bound, so
+    // it never opens on an empty grid and never asks a global question.
+    // The host name for the toolbar entry, from the same model the rail reads.
+    function seamlessHostName(hostIndex) {
+        return computerModel.computerName(hostIndex)
+    }
+
+    function openSeamlessPage(hostIndex, hostName) {
+        var component = Qt.createComponent("LibraryView.qml")
+        if (component.status !== Component.Ready) {
+            console.log("[seamless-page] push failed: " + component.errorString())
+            return
+        }
+        var page = component.createObject(stackView, {"hostIndex": hostIndex, "hostName": hostName})
+        stackView.push(page)
+    }
+
     StackView.onDeactivating: {
         ComputerManager.computerAddCompleted.disconnect(addComplete)
     }
@@ -178,6 +195,13 @@ CenteredGridView {
                         var appView = component.createObject(stackView, {"computerIndex": index, "objectName": model.name, "showHiddenGames": true})
                         stackView.push(appView)
                     }
+                    visible: model.online && model.paired
+                }
+                // The Seamless Windows destination of THIS host: a sibling of the
+                // desktop path (View All Apps above), which keeps its behaviour.
+                NavigableMenuItem {
+                    text: qsTr("Seamless Windows")
+                    onTriggered: root.openSeamlessPage(index, model.name)
                     visible: model.online && model.paired
                 }
                 NavigableMenuItem {
