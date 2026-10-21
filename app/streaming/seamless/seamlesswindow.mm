@@ -15,6 +15,76 @@
 
 #include <cmath>
 
+// The view inside a seamless window: it takes focus and forwards input to the
+// host, the same way the stream view does today for the desktop.
+@interface SeamlessInputView : NSView
+@property(nonatomic) quint32 windowId;
+@end
+
+@implementation SeamlessInputView
+
+- (BOOL)acceptsFirstResponder { return YES; }
+- (BOOL)becomeFirstResponder { return YES; }
+- (BOOL)needsPanelToBecomeKey { return NO; }
+
+- (BOOL)acceptsFirstMouse:(NSEvent*)event { Q_UNUSED(event); return YES; }
+
+- (void)focusHost:(uint8_t)mode
+{
+    // 0x52 WindowInput: the client tells the host which window is focused, so the
+    // host can raise it before the next input lands.
+    uint8_t message[SEAMLESS_INPUT_SIZE] {};
+    message[0] = SEAMLESS_MSG_WINDOW_INPUT;
+    message[1] = (uint8_t) self.windowId;
+    message[2] = mode;
+    LiSendSeamlessMessage(message, (int) sizeof(message));
+}
+
+- (void)mouseDown:(NSEvent*)event { [self focusHost:SEAMLESS_INPUT_FOCUS_RAISE]; LiSendMouseButtonEvent(BUTTON_ACTION_PRESS, BUTTON_LEFT); }
+- (void)mouseUp:(NSEvent*)event { LiSendMouseButtonEvent(BUTTON_ACTION_RELEASE, BUTTON_LEFT); }
+- (void)rightMouseDown:(NSEvent*)event { [self focusHost:SEAMLESS_INPUT_FOCUS_RAISE]; LiSendMouseButtonEvent(BUTTON_ACTION_PRESS, BUTTON_RIGHT); }
+- (void)rightMouseUp:(NSEvent*)event { LiSendMouseButtonEvent(BUTTON_ACTION_RELEASE, BUTTON_RIGHT); }
+
+- (void)mouseMoved:(NSEvent*)event { [self moveHost:event]; }
+- (void)mouseDragged:(NSEvent*)event { [self moveHost:event]; }
+- (void)rightMouseDragged:(NSEvent*)event { [self moveHost:event]; }
+
+- (void)moveHost:(NSEvent*)event
+{
+    const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    const NSRect bounds = self.bounds;
+    if (bounds.size.width <= 0 || bounds.size.height <= 0) {
+        return;
+    }
+    // Window-relative, normalized: the host maps it onto the app's window.
+    const short x = (short) qBound(0.0, point.x / bounds.size.width, 1.0) * 32767;
+    const short y = (short) qBound(0.0, 1.0 - point.y / bounds.size.height, 1.0) * 32767;
+    LiSendMousePositionEvent(x, y, (short) bounds.size.width, (short) bounds.size.height);
+}
+
+- (void)scrollWheel:(NSEvent*)event
+{
+    if (event.hasPreciseScrollingDeltas) {
+        LiSendHighResScrollEvent((short) qBound(-32767.0, event.scrollingDeltaY, 32767.0));
+    }
+    else {
+        LiSendScrollEvent((signed char) qBound(-128.0, event.scrollingDeltaY, 127.0));
+    }
+}
+
+- (void)keyDown:(NSEvent*)event
+{
+    [self focusHost:SEAMLESS_INPUT_FOCUS];
+    // The key code mapping (macOS keycode -> the host's virtual key) lands with
+    // the host apply step; until then a key press at least moves focus to the
+    // right window, and the character still arrives through the existing path.
+    [self interpretKeyEvents:@[ event ]];
+}
+
+- (void)keyUp:(NSEvent*)event { Q_UNUSED(event); }
+
+@end
+
 @implementation SeamlessWindow {
     NSWindow *_window;
     NSView *_view;
@@ -67,12 +137,13 @@
         return nil;
     }
 
-    _view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 1, 1)];
+    _view = [[SeamlessInputView alloc] initWithFrame:NSMakeRect(0, 0, 1, 1)];
     _layer = [CAMetalLayer layer];
     _layer.device = _device;
     _layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     _layer.framebufferOnly = YES;
     _layer.opaque = YES;
+    ((SeamlessInputView *) _view).windowId = windowId;
     _view.layer = _layer;
     _view.wantsLayer = YES;
     _window.contentView = _view;
@@ -231,6 +302,9 @@
     _layer.hidden = (entry.flags & SEAMLESS_WF_VISIBLE) == 0;
     if (!_layer.hidden && !_window.isVisible) {
         [_window orderFrontRegardless];
+    }
+    if (!_layer.hidden) {
+        [_window makeFirstResponder:_view];
     }
 }
 
