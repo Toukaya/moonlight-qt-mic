@@ -24,6 +24,7 @@ Rectangle {
     property string selectedHost: ""
     property var computerModel
     property var appsModel
+    property var windowsModel
 
     signal devicePicked(int index, string name)
 
@@ -44,21 +45,47 @@ Rectangle {
 
     function rebuild() {
         railModel.clear()
+        var paired = 0
+        var total = 0
         if (root.computerModel) {
-            railModel.append({ kind: "header", title: qsTr("Devices"),
-                               count: String(computerVisual.items.count), running: false,
-                               pickable: false, index: -1 })
+            // Favorites: the paired hosts - the saved ones (ComputerModel
+            // exposes pairing, not favourites; the mapping is recorded in
+            // the plan's 11.4 amendment)
+            var pairedRows = []
             for (var i = 0; i < computerVisual.items.count; i++) {
-                var computer = computerVisual.items.get(i).model
-                railModel.append({ kind: "item", title: computer.name,
-                                   count: "", running: computer.online,
-                                   pickable: true, index: i })
+                var c = computerVisual.items.get(i).model
+                total++
+                if (c.paired) {
+                    paired++
+                    pairedRows.push(c)
+                }
+            }
+            railModel.append({ kind: "header", title: qsTr("Favorites"),
+                               count: String(paired), running: false,
+                               pickable: false, index: -1 })
+            for (var p = 0; p < pairedRows.length; p++) {
+                railModel.append({ kind: "item", title: pairedRows[p].name,
+                                   count: "", running: pairedRows[p].online,
+                                   pickable: true, index: p })
+            }
+            railModel.append({ kind: "header", title: qsTr("Devices"),
+                               count: String(total), running: false,
+                               pickable: false, index: -1 })
+            for (var d = 0; d < computerVisual.items.count; d++) {
+                var device = computerVisual.items.get(d).model
+                railModel.append({ kind: "item", title: device.name,
+                                   count: "", running: device.online,
+                                   pickable: true, index: d })
             }
         }
-        if (root.appsModel && root.appsModel.count > 0) {
-            railModel.append({ kind: "header", title: qsTr("Apps"),
-                               count: String(appsVisual.items.count) + " " + qsTr("open"),
-                               running: false, pickable: false, index: -1 })
+        var openApps = 0
+        if (root.appsModel) {
+            openApps = appsVisual.items.count
+        }
+        railModel.append({ kind: "header", title: qsTr("Apps"),
+                           count: String(openApps) + " " + qsTr("open"),
+                           running: false, pickable: false, index: -1 })
+        if (root.appsModel) {
             for (var j = 0; j < appsVisual.items.count; j++) {
                 var app = appsVisual.items.get(j).model
                 railModel.append({ kind: "item", title: app.name,
@@ -66,6 +93,9 @@ Rectangle {
                                    pickable: false, index: j })
             }
         }
+        railModel.append({ kind: "header", title: qsTr("Running windows"),
+                           count: String(windowsModel.count), running: false,
+                           pickable: false, index: -1 })
     }
 
     onComputerModelChanged: rebuild()
@@ -83,6 +113,11 @@ Rectangle {
         onRowsInserted: rail.rebuild()
         onRowsRemoved: rail.rebuild()
         onModelReset: rail.rebuild()
+    }
+
+    Connections {
+        target: root.windowsModel
+        onCountChanged: rail.rebuild()
     }
 
     ListView {

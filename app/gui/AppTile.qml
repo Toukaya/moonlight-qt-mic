@@ -36,6 +36,14 @@ NavigableItemDelegate {
     readonly property int cellInset: 5
     readonly property int iconInset: 10
     readonly property int labelBlock: 26
+
+    function initialColor(text) {
+        var hash = 0
+        for (var i = 0; i < text.length; i++) {
+            hash = (hash * 31 + text.charCodeAt(i)) % 360
+        }
+        return Qt.hsla(hash / 360.0, 0.42, 0.52, 1)
+    }
     // The no-grid fallback composes r1's sanctioned form: 200 + 2*iconInset
     // by 267 + 2*iconInset (220x287)
     readonly property int fallbackIconWidth: 200
@@ -64,6 +72,27 @@ NavigableItemDelegate {
             anchors.centerIn: parent
             visible: root.appBusy
             running: root.appBusy
+        }
+    }
+
+    // The letter tile covers exactly the icon's Loading window (DOD item
+    // (i) tier 3): the app name's initial, the agreed type size, the app's
+    // text colour
+    Rectangle {
+        anchors.top: appIcon.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: appIcon.width
+        height: appIcon.height
+        radius: 8
+        visible: appIcon.status === Image.Loading
+        color: root.initialColor(root.appName)
+
+        Label {
+            anchors.centerIn: parent
+            text: root.appName.length > 0 ? root.appName.charAt(0).toUpperCase() : "?"
+            font.pointSize: 20
+            font.bold: true
+            color: "#cccccc"
         }
     }
 
