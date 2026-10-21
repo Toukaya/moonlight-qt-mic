@@ -134,6 +134,16 @@ Session* ComputerModel::createSessionForCurrentGame(int computerIndex)
     return nullptr;
 }
 
+int ComputerModel::computerCount()
+{
+    return m_Computers.count();
+}
+
+QString ComputerModel::computerName(int computerIndex)
+{
+    return m_Computers.value(computerIndex) ? m_Computers.value(computerIndex)->name : QString();
+}
+
 void ComputerModel::deleteComputer(int computerIndex)
 {
     Q_ASSERT(computerIndex < m_Computers.count());
