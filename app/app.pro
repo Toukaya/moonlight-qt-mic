@@ -198,6 +198,7 @@ SOURCES += \
     streaming/audio/audio.cpp \
     streaming/audio/capture/microphonecapture.cpp \
     streaming/seamless/seamlessmodel.cpp \
+    streaming/seamless/seamlesswindowsmodel.cpp \
     streaming/audio/renderers/sdlaud.cpp \
     gui/computermodel.cpp \
     gui/appmodel.cpp \
@@ -239,6 +240,7 @@ HEADERS += \
     streaming/session.h \
     streaming/audio/capture/microphonecapture.h \
     streaming/seamless/seamlessmodel.h \
+    streaming/seamless/seamlesswindowsmodel.h \
     streaming/seamless/seamlesswindow.h \
     streaming/audio/renderers/renderer.h \
     streaming/audio/renderers/sdl.h \
