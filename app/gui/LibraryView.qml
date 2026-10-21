@@ -80,8 +80,7 @@ Item {
         browser.launchedBoxart = info.boxart
         var segue = component.createObject(root.StackView.view, {
             "appName": appName,
-            "session": appsModel.createSessionForApp(appIndex),
-            "isResume": runningId === appId
+            "session": appsModel.createSessionForApp(appIndex)
         })
         root.StackView.view.push(segue)
     }
