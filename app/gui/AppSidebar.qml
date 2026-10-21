@@ -46,7 +46,7 @@ Rectangle {
         railModel.clear()
         if (root.computerModel) {
             railModel.append({ kind: "header", title: qsTr("Devices"),
-                               count: computerModel.count, running: false,
+                               count: String(computerVisual.items.count), running: false,
                                pickable: false, index: -1 })
             for (var i = 0; i < computerVisual.items.count; i++) {
                 var computer = computerVisual.items.get(i).model
@@ -57,7 +57,7 @@ Rectangle {
         }
         if (root.appsModel && root.appsModel.count > 0) {
             railModel.append({ kind: "header", title: qsTr("Apps"),
-                               count: appsModel.count + " " + qsTr("open"),
+                               count: String(appsVisual.items.count) + " " + qsTr("open"),
                                running: false, pickable: false, index: -1 })
             for (var j = 0; j < appsVisual.items.count; j++) {
                 var app = appsVisual.items.get(j).model
@@ -120,7 +120,7 @@ Rectangle {
                     anchors.left: parent.left; anchors.leftMargin: 14
                     spacing: 8
                     Rectangle {
-                        visible: row.kind === "item" && row.running
+                        visible: row.kind === "item" && model.running
                         width: 6; height: 6; radius: 3
                         anchors.verticalCenter: parent.verticalCenter
                         color: "#45c486"

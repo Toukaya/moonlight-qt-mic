@@ -17,7 +17,6 @@ import QtQuick.Layouts 1.3
 import ComputerModel 1.0
 import AppModel 1.0
 import SeamlessWindowsModel 1.0
-import ComputerManager 1.0
 
 Item {
     id: root
@@ -90,27 +89,13 @@ Item {
     }
 
     // The rail rows rebuild from the real models
-    Connections {
-        target: computerModel
-        onRowsInserted: rail.rebuild()
-        onRowsRemoved: rail.rebuild()
-        onModelReset: rail.rebuild()
-    }
-
-    Connections {
-        target: appsModel
-        onRowsInserted: rail.rebuild()
-        onRowsRemoved: rail.rebuild()
-        onModelReset: rail.rebuild()
-    }
-
     Component.onCompleted: {
         // ComputerManager is a context property of the app; the typeof
-        // guard keeps the page loadable where it is absent
+        // guard keeps the page loadable where it is absent. The rail
+        // rebuilds itself when the models change
         if (typeof ComputerManager !== "undefined") {
             computerModel.initialize(ComputerManager)
         }
-        rail.rebuild()
     }
 
     RowLayout {

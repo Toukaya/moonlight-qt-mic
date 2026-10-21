@@ -192,10 +192,10 @@ Rectangle {
             delegate: AppTile {
                 grid: tileGrid
                 appIndex: index
-                appName: name
-                appRunning: running
-                appBusy: busy
-                boxartSource: boxart
+                appName: model.name
+                appRunning: model.running
+                appBusy: model.busy
+                boxartSource: model.boxart
 
                 onAppRequested: root.appRequested(appIndex, appName, appId)
             }
@@ -223,17 +223,17 @@ Rectangle {
                 Keys.onDownPressed: listMode.incrementCurrentIndex()
                 Keys.onLeftPressed: nextItemInFocusChain(false).forceActiveFocus(Qt.TabFocus)
                 Keys.onRightPressed: nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocus)
-                Keys.onReturnPressed: root.appRequested(index, name, appid)
-                Keys.onEnterPressed: root.appRequested(index, name, appid)
+                Keys.onReturnPressed: root.appRequested(index, model.name, model.appid)
+                Keys.onEnterPressed: root.appRequested(index, model.name, model.appid)
 
-                onClicked: root.appRequested(index, name, appid)
+                onClicked: root.appRequested(index, model.name, model.appid)
 
                 IconImage {
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.left: parent.left
                     anchors.leftMargin: 8
-                    title: name
-                    boxartSource: boxart
+                    title: model.name
+                    boxartSource: model.boxart
                     width: 32
                     height: 32
                 }
@@ -242,7 +242,7 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.left: parent.left
                     anchors.leftMargin: 48
-                    text: name
+                    text: model.name
                     font.pointSize: 12
                     elide: Label.ElideRight
                     color: "#cccccc"
@@ -256,7 +256,7 @@ Rectangle {
                     height: 8
                     radius: 4
                     color: "#45c486"
-                    visible: running
+                    visible: model.running
                 }
             }
         }
@@ -340,7 +340,7 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.right: parent.right
                 anchors.rightMargin: 12
-                text: appsModel ? appsModel.count + " " + qsTr("apps") : ""
+                text: tileGrid.count + " " + qsTr("apps")
                 font.pointSize: 12
                 color: "#aaaaaa"
             }
@@ -352,7 +352,7 @@ Rectangle {
     Column {
         anchors.centerIn: parent
         spacing: 12
-        visible: appsModel && appsModel.count === 0 && root.errorText === ""
+        visible: tileGrid.count === 0 && root.errorText === ""
         z: 10
 
         Label {
