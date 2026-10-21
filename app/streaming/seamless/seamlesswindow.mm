@@ -417,6 +417,7 @@ static short host_modifiers_for_event(NSEvent* event)
 
     if ([_view isKindOfClass:[SeamlessInputView class]]) {
         SeamlessInputView* inputView = (SeamlessInputView*) _view;
+        inputView.tableIndex = self.tableIndex;
         inputView.cellPos = NSPointFromCGPoint(CGPointMake(entry.cellPos.x(), entry.cellPos.y()));
         inputView.clientSize = NSSizeFromCGSize(CGSizeMake(entry.clientSize.width(), entry.clientSize.height()));
         inputView.canvasSize = NSSizeFromCGSize(canvasSize);

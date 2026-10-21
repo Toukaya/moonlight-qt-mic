@@ -42,6 +42,11 @@
 /// The remote window id this local window belongs to.
 - (quint32)windowId;
 
+/// The window's index in the applied table: unique (the table caps at 32) and the
+/// value the input and intent messages carry, because the host resolves this byte
+/// as an index, not as a handle.
+@property(nonatomic) uint8_t tableIndex;
+
 /// Order the window out and drop its drawable. The window is not destroyed until
 /// this is called, so a hidden (minimized) remote window keeps its place.
 - (void)close;
