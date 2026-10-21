@@ -9,13 +9,7 @@
 #include <Limelight.h>
 #include "streaming/session.h"
 #include "streaming/streamutils.h"
-#include "streaming/seamless/seamlessmodel.h"
-#include "streaming/seamless/seamlesswindow.h"
-#include "streaming/seamless/seamlessinstruments.h"
 #include "path.h"
-
-#include <chrono>
-#include <map>
 
 #import <Cocoa/Cocoa.h>
 #import <VideoToolbox/VideoToolbox.h>
@@ -86,7 +80,6 @@ public:
           m_LastDrawableWidth(-1),
           m_LastDrawableHeight(-1)
     {
-        // QA's bit-correct instrument: off unless the measurement pass asks for it.
     }
 
     virtual ~VTMetalRenderer() override
@@ -480,220 +473,9 @@ public:
         return true;
     }}
 
-    // Keep one local window per remote window, on the thread that owns the window
-    // server. Hidden remote windows stay hidden rather than being forgotten, so a
-    // minimized window keeps its place in the z order.
-    void syncSeamlessWindows()
-    {
-        // With the channel off there is no table and no window to place: return
-        // before any AppKit or metal work, so a disabled feature costs nothing.
-        if (!LiIsSeamlessEnabled()) {
-            return;
-        }
-        SeamlessModel *model = GetSeamlessModel();
-        if (model == nullptr) {
-            return;
-        }
-
-        // One lock, one version: the table and its canvas travel together, so a
-        // render thread can never pair N+1 cells with N canvas.
-        const SeamlessModel::TableView view = model->snapshotTable();
-        const auto &wins = view.windows;
-
-        for (auto it = m_SeamlessWindows.begin(); it != m_SeamlessWindows.end();) {
-            bool stillThere = false;
-            for (const auto &entry : wins) {
-                if (entry.id == it->first) {
-                    stillThere = true;
-                    break;
-                }
-            }
-            if (stillThere) {
-                ++it;
-            }
-            else {
-                [it->second close];
-                [it->second release];
-                it = m_SeamlessWindows.erase(it);
-            }
-        }
-
-        seamless_instruments::windowCount.store((int) wins.size());
-        const CGSize canvas = CGSizeMake(view.canvasW, view.canvasH);
-        for (size_t index = 0; index < wins.size(); index++) {
-            const auto &entry = wins[index];
-            auto it = m_SeamlessWindows.find(entry.id);
-            if (it == m_SeamlessWindows.end()) {
-                // AppKit requires window creation on the main thread: this render
-                // thread asks the main queue to build it and waits for the result.
-                // The creation is wrapped, so a failure degrades to "no window"
-                // instead of aborting the process.
-                __block SeamlessWindow *window = nil;
-                __block QString failure;
-                dispatch_block_t create = ^{
-                    @try {
-                        window = [[SeamlessWindow alloc] initWithWindowId:entry.id
-                                                                   device:m_MetalLayer.device];
-                    }
-                    @catch (NSException *exception) {
-                        failure = QString::fromNSString(exception.name) + QStringLiteral(": ") +
-                                  QString::fromNSString(exception.reason);
-                        window = nil;
-                    }
-                };
-                if ([NSThread isMainThread]) {
-                    create();
-                }
-                else {
-                    dispatch_sync(dispatch_get_main_queue(), create);
-                }
-                if (window == nil) {
-                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                                 "Seamless: window %u was not created%s%s",
-                                 (unsigned) entry.id, failure.isEmpty() ? "" : ": ",
-                                 failure.toUtf8().constData());
-                    continue;
-                }
-                m_SeamlessWindows[entry.id] = window;
-                it = m_SeamlessWindows.find(entry.id);
-            }
-            m_SeamlessCells[entry.id] = CGRectMake(entry.cellPos.x(), entry.cellPos.y(),
-                                                   entry.cellSize.width(), entry.cellSize.height());
-            [it->second setTableIndex:(uint8_t) index];
-            [it->second updateWithEntry:entry canvasSize:canvas];
-        }
-    }
-
-    // Draw the canvas into every remote window: one command buffer, one render
-    // pass per window, one present per pass. The canvas is the decoded stream
-    // itself, so a window's cell is a sub-rectangle of the frame it came with.
-    void renderSeamlessWindows(AVFrame* frame)
-    { @autoreleasepool {
-        if (m_SeamlessWindows.empty()) {
-            return;
-        }
-
-        // The instrument for the GPU/stall lines: the CPU time this pass spends
-        // issuing the draws, and the frames it issued them for.
-
-        const size_t planes = getFramePlaneCount(frame);
-        std::array<CVMetalTextureRef, MAX_VIDEO_PLANES> cvMetalTextures;
-        const bool hardware = frame->format == AV_PIX_FMT_VIDEOTOOLBOX;
-        if (hardware && !createTexturesFromFrame(frame, cvMetalTextures)) {
-            return;
-        }
-
-        auto commandBuffer = [m_CommandQueue commandBuffer];
-        bool drew = false;
-
-        for (auto &pair : m_SeamlessWindows) {
-            SeamlessWindow *window = pair.second;
-            id<CAMetalDrawable> drawable = [window nextDrawable];
-            if (drawable == nil) {
-                continue;
-            }
-
-            simd_float4 cell;
-            [window copyCellUvTo:&cell];
-
-            // The cell is measured from the top of the canvas; the quad's v axis
-            // points up, so the two are mirrored here and nowhere else.
-            const float u0 = cell.x;
-            const float u1 = cell.x + cell.z;
-            const float vTop = 1.0f - cell.y;
-            const float vBottom = 1.0f - (cell.y + cell.w);
-
-            Vertex verts[] =
-            {
-                { { -1.0f, -1.0f, 0.0f, 1.0f }, { u0, vBottom } },
-                { { -1.0f,  1.0f, 0.0f, 1.0f }, { u0, vTop } },
-                { {  1.0f, -1.0f, 0.0f, 1.0f }, { u1, vBottom } },
-                { {  1.0f,  1.0f, 0.0f, 1.0f }, { u1, vTop } },
-            };
-
-            auto renderPassDescriptor = [MTLRenderPassDescriptor renderPassDescriptor];
-            renderPassDescriptor.colorAttachments[0].texture = drawable.texture;
-            renderPassDescriptor.colorAttachments[0].loadAction = MTLLoadActionClear;
-            renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
-            renderPassDescriptor.colorAttachments[0].storeAction = MTLStoreActionStore;
-
-            auto renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
-            [renderEncoder setRenderPipelineState:m_VideoPipelineState];
-            if (hardware) {
-                for (size_t i = 0; i < planes; i++) {
-                    [renderEncoder setFragmentTexture:CVMetalTextureGetTexture(cvMetalTextures[i]) atIndex:i];
-                }
-            }
-            else {
-                for (size_t i = 0; i < planes; i++) {
-                    [renderEncoder setFragmentTexture:mapPlaneForSoftwareFrame(frame, i) atIndex:i];
-                }
-            }
-            [renderEncoder setFragmentBuffer:m_CscParamsBuffer offset:0 atIndex:0];
-            [renderEncoder setVertexBytes:verts length:sizeof(verts) atIndex:0];
-            [renderEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
-            [renderEncoder endEncoding];
-
-            [commandBuffer presentDrawable:drawable];
-            drew = true;
-        }
-
-        if (!drew) {
-            // Nothing used the plane references, so release them here; the
-            // completion handler below is only installed on the commit path.
-            if (hardware) {
-                for (size_t i = 0; i < planes; i++) {
-                    CFRelease(cvMetalTextures[i]);
-                }
-            }
-            return;
-        }
-
-        if (hardware) {
-            [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
-                // The texture cache owns these references until the GPU is done.
-                for (size_t i = 0; i < planes; i++) {
-                    CFRelease(cvMetalTextures[i]);
-                }
-            }];
-        }
-
-        [commandBuffer commit];
-
-        // Same rule as the main drawable: never block the main run loop on a
-        // hardware frame; the software path must wait because it reuses textures.
-        if (!hardware) {
-            [commandBuffer waitUntilCompleted];
-        }
-
-    }}
-
+    // Caller frees frame after we return
     virtual void renderFrameIntoDrawable(AVFrame* frame, id<CAMetalDrawable> drawable)
     { @autoreleasepool {
-        // The seamless windows are created and drawn where the renderer actually
-        // presents a frame, not where the decoder hands one over: the table and
-        // the frame travel together, and the state is read before anything frees.
-        syncSeamlessWindows();
-        renderSeamlessWindows(frame);
-
-        // Operator requirement: the feature shows ONE APPLICATION's windows, not
-        // the desktop. With a non-empty scoped table, the per-window windows ARE
-        // the presentation, so the desktop surface is not drawn at all - the video
-        // stream still runs, it is what feeds the compose above.
-        if (SeamlessModel *seamlessModel = GetSeamlessModel();
-            seamlessModel != nullptr && !seamlessModel->snapshotTable().windows.isEmpty()) {
-            // The desktop surface is not presented while a window table drives
-            // the session. Printed when that state is entered, not per frame.
-            static bool desktopSkipped = false;
-            if (!desktopSkipped) {
-                desktopSkipped = true;
-                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                            "Seamless: desktop not presented, %zu windows drive the presentation",
-                            seamlessModel->snapshotTable().windows.size());
-            }
-            return;
-        }
-
         std::array<CVMetalTextureRef, MAX_VIDEO_PLANES> cvMetalTextures;
         size_t planes = getFramePlaneCount(frame);
         SDL_assert(planes <= MAX_VIDEO_PLANES);
@@ -1149,10 +931,6 @@ public:
 
     void renderLatestFrameOnDrawable(id<CAMetalDrawable> drawable, CFTimeInterval targetTimestamp)
     {
-        // The instrument for QA's main-thread line, gated on the seamless path
-        // being live. The gate is computed BEFORE the first clock read: with the
-        // feature off this callback must cost exactly what it did before, which
-        // means zero clock reads, not one.
         AVFrame* frame = nullptr;
 
         // Determine how long we can wait depending on how long our CAMetalDisplayLink
@@ -1197,9 +975,6 @@ private:
     id<MTLRenderPipelineState> m_OverlayPipelineState;
     id<MTLLibrary> m_ShaderLibrary;
     id<MTLCommandQueue> m_CommandQueue;
-    std::map<quint32, SeamlessWindow*> m_SeamlessWindows;
-    // QA's bit-correct instrument, measurement only.
-    std::map<quint32, CGRect> m_SeamlessCells;
     id<MTLTexture> m_SwMappingTextures[MAX_VIDEO_PLANES];
     SDL_MetalView m_MetalView;
     int m_LastFrameWidth;
