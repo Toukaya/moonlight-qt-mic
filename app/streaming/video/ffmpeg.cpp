@@ -2133,8 +2133,10 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
             stringifyVideoStats(lastTwoWndStats, overlayText, overlayMax);
 
             // The seamless block, appended to the existing statistics overlay and
-            // only while the feature is on. Fed by the same instruments that log.
-            if (GetSeamlessModel() != nullptr) {
+            // only for a session that negotiated the channel - the model object
+            // exists for every session, the flag does not. Fed by the same
+            // instruments that log.
+            if (Session::isSeamlessActive()) {
                 char block[192];
                 SDL_snprintf(block, sizeof(block),
                              "windows: %d\n"
@@ -2142,7 +2144,9 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
                              "gpu-pass: %.3f ms\n"
                              "drawable: %dx%d @ %.2fx\n",
                              seamless_instruments::windowCount.load(),
-                             (unsigned) (lastTwoWndStats.receivedFrames - lastTwoWndStats.renderedFrames),
+                             (unsigned) ((lastTwoWndStats.receivedFrames > lastTwoWndStats.renderedFrames)
+                                             ? (lastTwoWndStats.receivedFrames - lastTwoWndStats.renderedFrames)
+                                             : 0u),
                              seamless_instruments::gpuPassUs.load() / 1000.0,
                              seamless_instruments::drawableW.load(),
                              seamless_instruments::drawableH.load(),

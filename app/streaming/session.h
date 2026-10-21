@@ -22,6 +22,7 @@ class SeamlessModel;
 // guards its own handoff.
 SeamlessModel *GetSeamlessModel();
 
+
 class SupportedVideoFormatList : public QList<int>
 {
 public:
@@ -103,6 +104,11 @@ public:
 class Session : public QObject
 {
     Q_OBJECT
+
+public:
+    // The negotiated seamless flag of the active session: false for every session
+    // that did not ask for the channel, which is every session by default.
+    static bool isSeamlessActive();
 
     friend class SdlInputHandler;
     friend class DeferredSessionCleanupTask;
