@@ -15,10 +15,10 @@ Item {
     id: root
 
     // STUB: fixed sample rows; the real app model replaces this (plan 11.4).
-    // Three rows carry distinct art and the rest the app's own no-boxart
-    // placeholder, so the captures demonstrate both faces: an app WITH an
-    // icon shows it (no placeholder), an app without one shows the
-    // deliberate placeholder face
+    // Two rows carry distinct art (the app logo, a controller glyph) and the
+    // rest the app's own no-boxart placeholder, so the captures demonstrate
+    // both faces: an app WITH an icon shows it (no placeholder), an app
+    // without one shows the deliberate placeholder face
     ListModel {
         id: stubApps
         ListElement { name: "Notes"; running: false; busy: false; boxart: "qrc:/res/no_app_image.png" }
