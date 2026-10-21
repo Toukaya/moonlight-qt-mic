@@ -54,10 +54,6 @@ Item {
         root.hostName = name
         browser.hostLabel = name
         appsModel.initialize(ComputerManager, index, true)
-        console.log("[seamless-page] bind: ComputerManager=" + (typeof ComputerManager)
-                    + " computers=" + computerVisual.items.count
-                    + " selected=" + index
-                    + " apps=" + appsVisual.items.count)
     }
 
     function onComputerLost() {
