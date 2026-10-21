@@ -34,14 +34,20 @@ NavigableItemDelegate {
 
     readonly property int padOuter: 10
     readonly property int labelGap: 8
-    // The acceptance ladder: the delegate insets 5 per side from the cell,
-    // the icon area insets 10 per side from the delegate (230x297 cell ->
-    // 220x287 delegate -> 200x267 icon)
+    // The acceptance ladder, composed from the icon box: the delegate
+    // insets 5 per side from the cell, and the icon area is the delegate
+    // minus 10 per side - so 230x297 cell -> 220x287 delegate -> 200x267
+    // icon. The fallback (no grid) composes the SAME ladder from the icon
+    // box, giving 220x287, not a different tile
     readonly property int cellInset: 5
     readonly property int iconInset: 10
+    readonly property int iconWidth: 200
+    readonly property int iconHeight: 267
 
-    width: grid ? grid.cellWidth - 2 * cellInset : 2 * (padOuter + iconInset)
-    height: grid ? grid.cellHeight - 2 * cellInset : 267 + 2 * (padOuter + iconInset)
+    width: grid ? grid.cellWidth - 2 * cellInset
+                : root.iconWidth + 2 * iconInset
+    height: grid ? grid.cellHeight - 2 * cellInset
+                 : root.iconHeight + 2 * iconInset
 
     // The icon area of the existing delegate, anchored to the top. The
     // source size derives from the screen scale, so the placeholder asset
