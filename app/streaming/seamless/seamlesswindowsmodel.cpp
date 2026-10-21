@@ -92,9 +92,17 @@ void SeamlessWindowsModel::onWindowsChanged()
             // The table is scoped to the launched app, so the app's own name is the
             // window's name: the wire stays frozen (it carries a hash, never text).
             row.title = appTitle;
-            // 0x56 icons are not uplinked yet; an empty icon lets the page fall
-            // back to the app-list boxart, and to the letter tile while loading.
-            row.icon = QUrl();
+            // The 0x56 icon, when the host has sent one for this hash, is served
+            // by the image provider; an empty value lets the page fall back to the
+            // app-list boxart and then the letter tile.
+            QByteArray iconBytes;
+            if (entry.iconHash != 0 && SeamlessIconBytes(entry.iconHash, iconBytes)) {
+                row.icon = QUrl(QStringLiteral("image://seamlessicon/") +
+                                QString::number(entry.iconHash, 16));
+            }
+            else {
+                row.icon = QUrl();
+            }
             rows.push_back(row);
         }
     }

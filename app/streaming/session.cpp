@@ -1,4 +1,8 @@
 #include "session.h"
+
+#include <QImage>
+#include <QQmlEngine>
+#include <QQuickImageProvider>
 #include "settings/streamingpreferences.h"
 #include "streaming/streamutils.h"
 #include "backend/richpresencemanager.h"
@@ -43,6 +47,7 @@
 #include <QSvgRenderer>
 #include <QPainter>
 #include <QImage>
+#include <QQmlEngine>
 #include <QGuiApplication>
 #include <QCursor>
 #include <QScreen>
@@ -110,11 +115,75 @@ static void seamlessOnTable(uint8_t seq, uint8_t kind, uint16_t canvasW, uint16_
                              workAreaW, workAreaH, list.constData(), list.size());
 }
 
+// The icons the host sends are kept by hash: the page draws them through the
+// image provider below, keyed by the same hash the table carries.
+static QHash<quint32, QByteArray> s_SeamlessIconBytes;
+
+bool SeamlessIconBytes(quint32 iconHash, QByteArray& out)
+{
+    const auto it = s_SeamlessIconBytes.constFind(iconHash);
+    if (it == s_SeamlessIconBytes.constEnd()) {
+        return false;
+    }
+    out = it.value();
+    return true;
+}
+
 static void seamlessLogIcon(uint32_t iconHash, const uint8_t* data, int length, void* context)
 {
-    Q_UNUSED(data);
     Q_UNUSED(context);
+    if (data == nullptr || length <= 0) {
+        return;
+    }
+    s_SeamlessIconBytes.insert(iconHash, QByteArray(reinterpret_cast<const char*>(data), length));
     qInfo() << "Seamless icon hash" << QString::number(iconHash, 16) << "length" << length;
+}
+
+/// Registers the provider the QML engine serves image://seamlessicon/<hash> from.
+void RegisterSeamlessIconProvider(QQmlEngine *engine);
+
+/// Serves the host's icons to QML as image://seamlessicon/<hash>.
+class SeamlessIconProvider : public QQuickImageProvider
+{
+public:
+    SeamlessIconProvider() : QQuickImageProvider(QQuickImageProvider::Image) {}
+
+    QImage requestImage(const QString& id, QSize* size, const QSize& requestedSize) override
+    {
+        Q_UNUSED(requestedSize);
+
+        bool ok = false;
+        const quint32 hash = id.toUInt(&ok, 16);
+        QByteArray bytes;
+        if (!ok || !SeamlessIconBytes(hash, bytes)) {
+            if (size != nullptr) {
+                *size = QSize();
+            }
+            return {};
+        }
+
+        QImage image;
+        if (bytes.startsWith("\x89PNG")) {
+            image = QImage::fromData(bytes, "PNG");
+        }
+        else if (bytes.size() == 32 * 32 * 4) {
+            // 32 by 32 raw BGRA: the shape the uplink sends.
+            image = QImage(reinterpret_cast<const uchar*>(bytes.constData()), 32, 32, 32 * 4,
+                           QImage::Format_ARGB32).copy();
+        }
+
+        if (size != nullptr) {
+            *size = image.size();
+        }
+        return image;
+    }
+};
+
+void RegisterSeamlessIconProvider(QQmlEngine *engine)
+{
+    if (engine != nullptr) {
+        engine->addImageProvider(QStringLiteral("seamlessicon"), new SeamlessIconProvider());
+    }
 }
 
 static void seamlessLogCaret(uint8_t windowId, int16_t x, int16_t y, uint16_t height, void* context)

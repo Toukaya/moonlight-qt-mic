@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QByteArray>
 #include <QSemaphore>
 #include <QQuickWindow>
 
@@ -16,6 +17,13 @@ class ClipboardManager;
 class NvHTTP;
 class QuickMenuManager;
 class SeamlessModel;
+
+// The icon bytes the host sent for a hash, if it has sent them yet.
+bool SeamlessIconBytes(quint32 iconHash, QByteArray& out);
+
+// The image provider the page loads icons through.
+class QQmlEngine;
+void RegisterSeamlessIconProvider(QQmlEngine *engine);
 
 // The window table the seamless page draws with, or nullptr when the session did
 // not open the channel. The renderer reads it on the frame thread; the model

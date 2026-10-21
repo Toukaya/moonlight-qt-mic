@@ -1000,6 +1000,8 @@ int main(int argc, char *argv[])
     }
 
     QQmlApplicationEngine engine;
+    // The seamless icons reach QML as image://seamlessicon/<hash>.
+    RegisterSeamlessIconProvider(&engine);
     QString initialView;
     bool hasGUI = true;
 
