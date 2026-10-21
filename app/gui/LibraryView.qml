@@ -1,38 +1,117 @@
 // LibraryView is the shell of the separate Seamless Windows page: the left
 // rail, the content stack and the overlay slots of plan 11.2. The page is
-// additive and entered explicitly from the toolbar; the ruling that scopes it
-// is plan 6.0, and the old pages keep their own code path untouched.
+// additive and entered explicitly from the toolbar; the ruling that scopes
+// it is plan 6.0, and the old pages keep their own code path untouched.
 //
-// STUB MODEL: fixed sample rows so the page is reviewable before the window
-// table exists (plan 11.4). The models of plan 11.3 replace this stub. The
-// actions that need the window table show a stub notice where they fire; no
-// protocol wiring is present.
+// The page carries no sample data: the Devices section reads the real
+// ComputerModel, the apps grid reads the real AppModel of the picked host
+// (the same model AppView uses, with the same launch path through
+// StreamSegue), and the running-windows list reads the real SeamlessModel
+// table through SeamlessWindowsModel. ComputerManager is optional at
+// construction (the typeof guard lets the page render before the manager
+// exists); the guard is also what keeps the page loadable outside the app.
 
 import QtQuick 2.9
+import QtQuick.Controls 2.2
 import QtQuick.Layouts 1.3
+import ComputerModel 1.0
+import AppModel 1.0
+import SeamlessWindowsModel 1.0
+import ComputerManager 1.0
 
 Item {
     id: root
 
-    // STUB: fixed sample rows; the real app model replaces this (plan 11.4).
-    // Two rows carry distinct art (the app logo, a controller glyph) and the
-    // rest the app's own no-boxart placeholder, so the captures demonstrate
-    // both faces: an app WITH an icon shows it (no placeholder), an app
-    // without one shows the deliberate placeholder face
-    ListModel {
-        id: stubApps
-        ListElement { name: "Notes"; running: false; busy: false; boxart: "qrc:/res/no_app_image.png" }
-        ListElement { name: "Files"; running: false; busy: false; boxart: "qrc:/res/moonlight.svg" }
-        ListElement { name: "Mail"; running: true; busy: false; boxart: "qrc:/res/no_app_image.png" }
-        ListElement { name: "Photos"; running: false; busy: false; boxart: "qrc:/res/no_app_image.png" }
-        ListElement { name: "Terminal"; running: true; busy: false; boxart: "qrc:/res/ic_videogame_asset_white_48px.svg" }
-        ListElement { name: "IDE"; running: false; busy: true; boxart: "qrc:/res/no_app_image.png" }
-        ListElement { name: "Music"; running: false; busy: false; boxart: "qrc:/res/no_app_image.png" }
-        ListElement { name: "Reader"; running: false; busy: false; boxart: "qrc:/res/no_app_image.png" }
+    // The host whose apps the page browses: index into ComputerManager's
+    // computer list, set by picking a device in the rail
+    property int computerIndex: -1
+    property string hostName: ""
+    property string errorText: ""
+
+    // The real devices (ComputerModel) and the real app list of the picked
+    // host (AppModel) - the same models AppView uses
+    ComputerModel {
+        id: computerModel
     }
 
-    // STUB: swap point for the real app model (plan 11.4)
-    property var appModel: stubApps
+    AppModel {
+        id: appsModel
+
+        onComputerLost: root.errorText = qsTr("The host is no longer reachable.")
+    }
+
+    // The real applied window table of the seamless session (build's model)
+    SeamlessWindowsModel {
+        id: windowsModel
+    }
+
+    function selectHost(index, name) {
+        root.computerIndex = index
+        root.hostName = name
+        browser.hostLabel = name
+        appsModel.initialize(ComputerManager, index, true)
+        appsModel.computerLost.connect(root.onComputerLost)
+        rail.rebuild()
+    }
+
+    function onComputerLost() {
+        root.errorText = qsTr("The host is no longer reachable.")
+    }
+
+    // The launch path of the existing app grid (AppView.qml:206-231): the
+    // same running-app guard, the same StreamSegue with a session from
+    // AppModel.createSessionForApp, pushed on the same StackView
+    function launchApp(appIndex, appName, appId) {
+        var runningId = appsModel.getRunningAppId()
+        if (runningId !== 0 && runningId !== appId) {
+            showNotice(qsTr("Quit %1 before launching %2.")
+                       .arg(appsModel.getRunningAppName()).arg(appName))
+            return
+        }
+        var component = Qt.createComponent("StreamSegue.qml")
+        if (component.status === Component.Error) {
+            showNotice(component.errorString())
+            return
+        }
+        // The running-windows list's boxart fallback is the launched app's
+        var info = appsModel.getApp(appIndex)
+        browser.launchedBoxart = info.boxart
+        var segue = component.createObject(root.StackView.view, {
+            "appName": appName,
+            "session": appsModel.createSessionForApp(appIndex),
+            "isResume": runningId === appId
+        })
+        root.StackView.view.push(segue)
+    }
+
+    function showNotice(message) {
+        notice.showToast(message)
+        noticeTimer.restart()
+    }
+
+    // The rail rows rebuild from the real models
+    Connections {
+        target: computerModel
+        onRowsInserted: rail.rebuild()
+        onRowsRemoved: rail.rebuild()
+        onModelReset: rail.rebuild()
+    }
+
+    Connections {
+        target: appsModel
+        onRowsInserted: rail.rebuild()
+        onRowsRemoved: rail.rebuild()
+        onModelReset: rail.rebuild()
+    }
+
+    Component.onCompleted: {
+        // ComputerManager is a context property of the app; the typeof
+        // guard keeps the page loadable where it is absent
+        if (typeof ComputerManager !== "undefined") {
+            computerModel.initialize(ComputerManager)
+        }
+        rail.rebuild()
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -41,30 +120,29 @@ Item {
         AppSidebar {
             Layout.preferredWidth: 260
             Layout.fillHeight: true
+            computerModel: computerModel
+            appsModel: appsModel
+            selectedHost: root.hostName
 
-            onDevicePicked: {
-                browser.hostLabel = name
-                browser.refilter()
-            }
+            onDevicePicked: root.selectHost(index, name)
         }
 
         AppBrowser {
             id: browser
             Layout.fillWidth: true
             Layout.fillHeight: true
-            hostLabel: qsTr("Studio PC")
-            appsModel: root.appModel
+            hostLabel: root.hostName
+            appsModel: appsModel
+            errorText: root.errorText
 
-            onRefreshRequested: browser.refilter()
-            onOpenRequested: root.showStubNotice(qsTr("Stub: launching arrives with the window table"))
-            onCloseRequested: root.showStubNotice(qsTr("Stub: closing arrives with the window table"))
-            onPinRequested: root.showStubNotice(qsTr("Stub: pinning arrives with the window table"))
+            onRefreshRequested: rail.rebuild()
+            onAppRequested: root.launchApp(appIndex, appName, appId)
         }
     }
 
-    // Stub marker for the actions that need the window table (plan 11.4)
+    // Notices for actions that need the session (lane 2)
     Toast {
-        id: stubToast
+        id: notice
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 20
@@ -73,13 +151,13 @@ Item {
     }
 
     Timer {
-        id: stubToastTimer
+        id: noticeTimer
         interval: 3000
-        onTriggered: stubToast.opacity = 0
+        onTriggered: notice.opacity = 0
     }
 
-    function showStubNotice(message) {
-        stubToast.showToast(message)
-        stubToastTimer.restart()
+    function showToast(message) {
+        notice.showToast(message)
+        noticeTimer.restart()
     }
 }

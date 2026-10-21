@@ -29,6 +29,10 @@ public:
 
     Q_INVOKABLE Session* createSessionForApp(int appIndex);
 
+    // Row access for QML controls that need row data outside a delegate
+    // (the Seamless Windows page's search and launch bookkeeping)
+    Q_INVOKABLE QVariantMap getApp(int appIndex);
+
     Q_INVOKABLE int getDirectLaunchAppIndex();
 
     Q_INVOKABLE int getRunningAppId();

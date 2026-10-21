@@ -4,12 +4,13 @@
 // states of plan 11.5; and a real footer status bar. The grid is a
 // CenteredGridView with NavigableItemDelegate-based tiles, so keyboard and
 // gamepad navigation reuse the existing logic instead of new focus code.
-// The column count derives from the content width (at least 3 columns), so
-// tiles fit at the default 1280x600 window and when maximised.
 //
-// STUB NOTE: filtering copies rows into a local model because the real
-// models are not wired yet (plan 11.4); a proper proxy replaces this when
-// they land. Refresh re-filters locally; the real refresh asks the host.
+// The grid binds the real AppModel of the picked host - the same model the
+// existing AppView uses (name / running / boxart / appid roles). The grid
+// carries the app's own literals (AppView.qml:21): cell 230x297, and
+// CenteredGridView centres whatever columns fit. The search field jumps the
+// grid selection to the first matching app. Refresh asks the shell, which
+// re-initialises the model from ComputerManager.
 
 import QtQuick 2.9
 import QtQuick.Controls 2.2
@@ -31,47 +32,34 @@ Rectangle {
     property string hostLabel: ""
     property string errorText: ""
     property bool listView: false
-    // The model to browse; a stub ListModel for now (plan 11.4)
+    property bool showWindows: false
+    // The real app list of the picked host (AppModel)
     property var appsModel
+    // The real applied window table of the seamless session
+    property var windowsModel
+    // The boxart of the app the page launched - the running-windows list's
+    // fallback face while the window icons are in flight
+    property string launchedBoxart: ""
 
     signal refreshRequested()
-    signal openRequested(string name)
-    signal closeRequested(string name)
-    signal pinRequested(string name)
+    // A tile was activated: the shell launches through the app's own path
+    signal appRequested(int appIndex, string appName, string appId)
 
-    // STUB: local filtered copy; replaced by a proxy with the real models
-    ListModel {
-        id: filteredApps
-    }
-
-    // The grid carries the app's own literals (AppView.qml:21): cell
-    // 230x297, and CenteredGridView centres whatever columns fit - the
-    // operator's enumerated metrics govern (r1 queued the confirm)
-
-    onAppsModelChanged: refilter()
-
-    function refilter() {
-        filteredApps.clear()
+    // The search field jumps the grid selection to the first app whose
+    // name matches, so the control is live without copying the model
+    function selectFirstMatch(needle) {
         if (!appsModel) {
             return
         }
-        var needle = searchField.text.toLowerCase()
+        var text = needle.toLowerCase()
         for (var i = 0; i < appsModel.count; i++) {
-            var row = appsModel.get(i)
-            if (needle.length === 0 || row.name.toLowerCase().indexOf(needle) !== -1) {
-                filteredApps.append(row)
+            var app = appsModel.getApp(i)
+            if (app.name.toLowerCase().indexOf(text) !== -1) {
+                tileGrid.currentIndex = i
+                return
             }
         }
-    }
-
-    function runningCount() {
-        var count = 0
-        for (var i = 0; i < filteredApps.count; i++) {
-            if (filteredApps.get(i).running) {
-                count++
-            }
-        }
-        return count
+        tileGrid.currentIndex = -1
     }
 
     ColumnLayout {
@@ -125,7 +113,7 @@ Rectangle {
                 Layout.preferredWidth: 220
                 placeholderText: qsTr("Search apps")
                 font.pointSize: 12
-                onTextChanged: root.refilter()
+                onTextChanged: root.selectFirstMatch(text)
             }
 
             NavigableToolButton {
@@ -133,8 +121,8 @@ Rectangle {
                 text: qsTr("Grid")
                 font.pointSize: 12
                 checkable: true
-                checked: !root.listView
-                onCheckedChanged: if (checked) root.listView = false
+                checked: !root.listView && !root.showWindows
+                onCheckedChanged: if (checked) { root.listView = false; root.showWindows = false }
                 ToolTip.delay: 1000
                 ToolTip.timeout: 3000
                 ToolTip.visible: hovered
@@ -151,8 +139,8 @@ Rectangle {
                 text: qsTr("List")
                 font.pointSize: 12
                 checkable: true
-                checked: root.listView
-                onCheckedChanged: if (checked) root.listView = true
+                checked: root.listView && !root.showWindows
+                onCheckedChanged: if (checked) { root.listView = true; root.showWindows = false }
                 ToolTip.delay: 1000
                 ToolTip.timeout: 3000
                 ToolTip.visible: hovered
@@ -172,6 +160,19 @@ Rectangle {
                 ToolTip.text: qsTr("Refresh")
                 onClicked: root.refreshRequested()
             }
+
+            NavigableToolButton {
+                text: qsTr("Windows")
+                font.pointSize: 12
+                checkable: true
+                checked: root.showWindows
+                onCheckedChanged: if (checked) { root.listView = false; root.showWindows = true }
+                                 else root.showWindows = false
+                ToolTip.delay: 1000
+                ToolTip.timeout: 3000
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Running windows")
+            }
         }
 
         // Content body, grid mode (plan 11.2). Fixed cell metrics from
@@ -181,23 +182,22 @@ Rectangle {
             id: tileGrid
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !root.listView
+            visible: !root.listView && !root.showWindows
             cellWidth: 230
             cellHeight: 297
             topMargin: padInner
             bottomMargin: gridBottomClearance
-            model: filteredApps
+            model: appsModel
 
             delegate: AppTile {
                 grid: tileGrid
+                appIndex: index
                 appName: name
                 appRunning: running
                 appBusy: busy
                 boxartSource: boxart
 
-                onOpenRequested: root.openRequested(appName)
-                onCloseRequested: root.closeRequested(appName)
-                onPinRequested: root.pinRequested(appName)
+                onAppRequested: root.appRequested(appIndex, appName, appId)
             }
         }
 
@@ -206,22 +206,27 @@ Rectangle {
             id: listMode
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: root.listView
-            model: filteredApps
+            visible: root.listView && !root.showWindows
+            model: appsModel
             spacing: 2
             bottomMargin: gridBottomClearance
 
             delegate: NavigableItemDelegate {
                 width: listMode.width
                 height: 44
-                // The list is the navigation grid for these rows; ListView
-                // shares the moveCurrentIndex* API the delegate expects.
-                // Null-safe highlight: the base binding evaluates once
-                // before grid binds.
-                grid: listMode
-                highlighted: grid ? grid.activeFocus && grid.currentItem === this : false
+                // List rows: no GridView behind them, so the base grid
+                // bindings are overridden and the arrows drive the list's
+                // own currentIndex; Return opens
+                highlighted: false
 
-                onClicked: root.openRequested(name)
+                Keys.onUpPressed: listMode.decrementCurrentIndex()
+                Keys.onDownPressed: listMode.incrementCurrentIndex()
+                Keys.onLeftPressed: nextItemInFocusChain(false).forceActiveFocus(Qt.TabFocus)
+                Keys.onRightPressed: nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocus)
+                Keys.onReturnPressed: root.appRequested(index, name, appid)
+                Keys.onEnterPressed: root.appRequested(index, name, appid)
+
+                onClicked: root.appRequested(index, name, appid)
 
                 IconImage {
                     anchors.verticalCenter: parent.verticalCenter
@@ -256,37 +261,77 @@ Rectangle {
             }
         }
 
-        // Empty state (plan 11.5): one line plus refresh
-        Column {
-            anchors.centerIn: parent
-            spacing: 12
-            visible: filteredApps.count === 0 && root.errorText === ""
+        // Content body, running windows: the real applied table rows
+        // (SeamlessWindowsModel). Outside a session the table is empty
+        // because the host publishes no windows. Icon order per DOD 8:
+        // the model's icon role first, the launched app's boxart second
+        ListView {
+            id: windowsList
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: root.showWindows
+            model: windowsModel
+            spacing: 2
+
+            delegate: NavigableItemDelegate {
+                width: windowsList.width
+                height: 44
+                highlighted: false
+
+                Keys.onUpPressed: windowsList.decrementCurrentIndex()
+                Keys.onDownPressed: windowsList.incrementCurrentIndex()
+
+                IconImage {
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: parent.left
+                    anchors.leftMargin: 8
+                    width: 32
+                    height: 32
+                    title: model.title
+                    iconSource: model.icon
+                    boxartSource: root.launchedBoxart
+                }
+
+                Label {
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: parent.left
+                    anchors.leftMargin: 48
+                    text: model.title
+                    font.pointSize: 12
+                    elide: Label.ElideRight
+                    color: "#cccccc"
+                }
+
+                Label {
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.right: parent.right
+                    anchors.rightMargin: 12
+                    text: qsTr("window id %1").arg(model.id)
+                    font.pointSize: 11
+                    color: "#aaaaaa"
+                }
+            }
 
             Label {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: qsTr("This host publishes no apps")
+                anchors.centerIn: parent
+                visible: windowsModel && windowsModel.count === 0
+                text: qsTr("No windows are open")
                 font.pointSize: 20
                 color: "#aaaaaa"
             }
-
-            Button {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: qsTr("Refresh")
-                onClicked: root.refreshRequested()
-            }
         }
 
-        // Content foot: a real footer bar - status left, counts right
+        // Content foot: a real footer bar - host left, count right
         Rectangle {
             Layout.fillWidth: true
-            height: 28
+            height: footerHeight
             color: "#2d2d2d"
 
             Label {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.left: parent.left
                 anchors.leftMargin: 12
-                text: root.hostLabel + " - " + qsTr("stub: no transport yet")
+                text: root.hostLabel
                 font.pointSize: 12
                 color: "#aaaaaa"
             }
@@ -295,11 +340,32 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.right: parent.right
                 anchors.rightMargin: 12
-                text: filteredApps.count + " " + qsTr("apps") + " - "
-                        + root.runningCount() + " " + qsTr("running")
+                text: appsModel ? appsModel.count + " " + qsTr("apps") : ""
                 font.pointSize: 12
                 color: "#aaaaaa"
             }
+        }
+    }
+
+    // Empty state (plan 11.5): one line plus refresh. A root-level overlay:
+    // it must not live inside the ColumnLayout, where anchors are undefined
+    Column {
+        anchors.centerIn: parent
+        spacing: 12
+        visible: appsModel && appsModel.count === 0 && root.errorText === ""
+        z: 10
+
+        Label {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: qsTr("This host publishes no apps")
+            font.pointSize: 20
+            color: "#aaaaaa"
+        }
+
+        Button {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: qsTr("Refresh")
+            onClicked: root.refreshRequested()
         }
     }
 }

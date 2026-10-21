@@ -1,16 +1,8 @@
-// IconImage decides its source in this order (operator ruling 00:56Z:
-// "boxart for entries that come from the existing app list, the icon
-// message for the rest" - boxart when present):
-//   1. the app list boxart role - the same source AppView already binds
-//      (AppView.qml: model.boxart) - for every entry the app list carries;
-//   2. the window icon by hash, for entries the app list does not know -
-//      the 0x56 SEAMLESS_MSG_ICON message (uint32 hash, then PNG bytes,
-//      once per hash) lands here as iconSource; future wiring, no protocol
-//      yet;
-//   3. the letter tile WHILE LOADING ONLY (Image.Loading) - never the
-//      steady-state face: when no source exists, or a source failed to
-//      decode, the tile shows the app's own no-boxart placeholder instead
-//      (the deliberate, stated no-icon face per the refused-blob rule).
+// IconImage decides its source in the operator's order (DOD 8): the
+// window icon by hash first (the 0x56 SEAMLESS_MSG_ICON message lands here
+// as iconSource once the uplink is wired), else the app-list boxart role
+// (the same source AppView already binds), and the letter tile covers only
+// while an image loads - never as the steady-state face.
 // The Qt image cache keeps decoded images once per source, so scrolling
 // does not re-decode; the per-hash pixmap cache of plan 11.7 lands with the
 // icon provider.
@@ -46,17 +38,11 @@ Item {
         // Decode at the screen scale so the placeholder stays crisp on 2x
         sourceSize.width: Math.round(width * Screen.devicePixelRatio)
         sourceSize.height: Math.round(height * Screen.devicePixelRatio)
-        // Source order: boxart, then window icon; empty or failed sources
-        // fall back to the placeholder, so the letter tile only ever covers
-        // the Loading window
-        source: {
-            if (root.sourceFailed) {
-                return root.placeholderSource
-            }
-            var picked = root.boxartSource !== "" ? root.boxartSource
-                                                  : root.iconSource
-            return picked === "" ? root.placeholderSource : picked
-        }
+        // Source order (DOD 8): window icon by hash first, then the
+        // boxart role; the letter tile covers only the Loading window
+        source: root.iconSource !== "" ? root.iconSource
+                                       : (root.boxartSource !== "" ? root.boxartSource
+                                                                   : root.placeholderSource)
         onStatusChanged: {
             if (pix.status === Image.Error) {
                 root.sourceFailed = true

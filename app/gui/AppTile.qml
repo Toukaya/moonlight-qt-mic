@@ -8,11 +8,8 @@
 // the cell, the icon area insets 10 per side from the delegate. Focus
 // behaviour comes from NavigableItemDelegate, so keyboard and gamepad
 // navigation reuse the existing logic instead of new focus code. The icon
-// source order lives in IconImage.qml and is not restated here.
-//
-// STUB NOTE: Open and Close need the launch path and the window table
-// (plan 11.4); the shell shows a stub notice where they fire. Pin belongs to
-// the same future wiring.
+// area binds the app-list boxart role; the icon source order lives in
+// IconImage.qml.
 
 import QtQuick 2.9
 import QtQuick.Controls 2.2
@@ -26,30 +23,26 @@ NavigableItemDelegate {
     property bool appRunning: false
     property bool appBusy: false
     property string boxartSource: ""
-    property string iconSource: ""
 
-    signal openRequested(string name)
-    signal closeRequested(string name)
-    signal pinRequested(string name)
+    signal appRequested(int appIndex, string appName, string appId)
 
     readonly property int padOuter: 10
-    readonly property int labelGap: 8
+    readonly property int labelGap: 4
     // The acceptance ladder, composed from the icon box: the delegate
-    // insets 5 per side from the cell, and the icon area is the delegate
-    // minus 10 per side - so 230x297 cell -> 220x287 delegate -> 200x267
-    // icon. The fallback (no grid) composes the SAME ladder from the icon
-    // box, giving 220x287, not a different tile
+    // insets 5 per side from the cell, the icon area insets 10 per side
+    // from the delegate, and the label block sits under the icon - so
+    // 230x297 cell -> 220x287 delegate -> 200x267 icon with the label
+    // fully inside
     readonly property int cellInset: 5
     readonly property int iconInset: 10
-    readonly property int iconWidth: 200
-    readonly property int iconHeight: 267
+    readonly property int labelBlock: 26
 
-    width: grid ? grid.cellWidth - 2 * cellInset
-                : root.iconWidth + 2 * iconInset
-    height: grid ? grid.cellHeight - 2 * cellInset
-                 : root.iconHeight + 2 * iconInset
+    width: grid ? grid.cellWidth : root.iconWidth + 2 * iconInset
+    height: grid ? grid.cellHeight
+                 : root.iconHeight + 2 * iconInset + labelBlock
 
-    // The icon area of the existing delegate, anchored to the top. The
+    // The icon area of the existing delegate, anchored to the top, with
+    // the label block reserved under it so the label never clips. The
     // source size derives from the screen scale, so the placeholder asset
     // decodes crisp on 2x displays
     Image {
@@ -57,11 +50,11 @@ NavigableItemDelegate {
         anchors.horizontalCenter: parent.horizontalCenter
         y: root.iconInset
         width: root.width - 2 * root.iconInset
-        height: root.height - 2 * root.iconInset
+        height: root.height - 2 * root.iconInset - root.labelBlock
         fillMode: Image.PreserveAspectFit
         sourceSize.width: Math.round(width * Screen.devicePixelRatio)
         sourceSize.height: Math.round(height * Screen.devicePixelRatio)
-        source: root.boxartSource !== "" ? root.boxartSource : root.iconSource
+        source: root.boxartSource
 
         BusyIndicator {
             anchors.centerIn: parent
@@ -85,11 +78,10 @@ NavigableItemDelegate {
 
     Label {
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: appIcon.bottom
-        anchors.topMargin: root.labelGap
-        width: parent.width - 2 * root.cellInset
+        y: appIcon.y + appIcon.height + root.labelGap
+        width: root.width
         horizontalAlignment: Text.AlignHCenter
-        elide: Label.ElideRight
+        elide: Text.ElideRight
         text: root.appName
         font.pointSize: 20
         color: "#cccccc"

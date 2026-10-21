@@ -1,16 +1,16 @@
 // AppSidebar is the left rail of the Seamless Windows page (plan 11.2):
-// one ListView with ItemDelegate rows - headers and items share one model
-// and one rhythm, so heights cannot drift and the rail scrolls when the
-// sections grow. Hover and press feedback come from the delegate; selection
-// is one full-width rounded bar with the accent on the current row. Names
-// elide in the middle, so "Work Laptop" stays readable when the rail
-// narrows. ListView handles Up/Down itself; Enter forwards to the current
-// item - no second focus system.
+// one ListView whose rows rebuild from the real models - the Devices
+// section from ComputerModel (every host the manager knows), the Apps
+// section from the AppModel of the picked host. Rows are a fixed 28/36, the
+// selection is one full-width rounded bar with the accent on the current
+// row, names elide in the middle, and ListView keeps the keyboard.
 //
-// STUB NOTE: the rows are fixed sample data; counts, markers and selection
-// come from the models of plan 11.3 when they are wired. Picking a favorite
-// or a device asks the shell to browse that host; app rows are
-// display-only for now.
+// Note: the plan's Favorites section is not in this build - ComputerModel
+// exposes no favourite role, so there is nothing real to show there yet;
+// the section arrives with the favourite wiring.
+//
+// Row access to the C++ models goes through DelegateModel.items, the way
+// QML reads QAbstractListModel rows from JavaScript.
 
 import QtQuick 2.9
 import QtQuick.Controls 2.2
@@ -21,23 +21,68 @@ Rectangle {
     color: "#2d2d2d"
 
     // The host whose apps the content area browses
-    property string selectedHost: "Studio PC"
+    property string selectedHost: ""
+    property var computerModel
+    property var appsModel
 
-    signal devicePicked(string name)
+    signal devicePicked(int index, string name)
 
-    // STUB: fixed sample rows; kind is "header" or "item"
     ListModel {
         id: railModel
-        ListElement { kind: "header"; title: QT_TR_NOOP("Favorites"); count: "2"; running: false; pickable: false }
-        ListElement { kind: "item"; title: "Studio PC"; count: ""; running: false; pickable: true }
-        ListElement { kind: "item"; title: "Work Laptop"; count: ""; running: false; pickable: true }
-        ListElement { kind: "header"; title: QT_TR_NOOP("Devices"); count: "2"; running: false; pickable: false }
-        ListElement { kind: "item"; title: "Studio PC"; count: ""; running: true; pickable: true }
-        ListElement { kind: "item"; title: "Work Laptop"; count: ""; running: false; pickable: true }
-        ListElement { kind: "header"; title: QT_TR_NOOP("Apps"); count: QT_TR_NOOP("3 open"); running: false; pickable: false }
-        ListElement { kind: "item"; title: "Mail"; count: ""; running: true; pickable: false }
-        ListElement { kind: "item"; title: "Files"; count: ""; running: false; pickable: false }
-        ListElement { kind: "item"; title: "Terminal"; count: ""; running: true; pickable: false }
+    }
+
+    // Read access to the C++ model rows for the rebuild
+    DelegateModel {
+        id: computerVisual
+        model: root.computerModel
+    }
+
+    DelegateModel {
+        id: appsVisual
+        model: root.appsModel
+    }
+
+    function rebuild() {
+        railModel.clear()
+        if (root.computerModel) {
+            railModel.append({ kind: "header", title: qsTr("Devices"),
+                               count: computerModel.count, running: false,
+                               pickable: false, index: -1 })
+            for (var i = 0; i < computerVisual.items.count; i++) {
+                var computer = computerVisual.items.get(i).model
+                railModel.append({ kind: "item", title: computer.name,
+                                   count: "", running: computer.online,
+                                   pickable: true, index: i })
+            }
+        }
+        if (root.appsModel && root.appsModel.count > 0) {
+            railModel.append({ kind: "header", title: qsTr("Apps"),
+                               count: appsModel.count + " " + qsTr("open"),
+                               running: false, pickable: false, index: -1 })
+            for (var j = 0; j < appsVisual.items.count; j++) {
+                var app = appsVisual.items.get(j).model
+                railModel.append({ kind: "item", title: app.name,
+                                   count: "", running: app.running,
+                                   pickable: false, index: j })
+            }
+        }
+    }
+
+    onComputerModelChanged: rebuild()
+    onAppsModelChanged: rebuild()
+
+    Connections {
+        target: root.computerModel
+        onRowsInserted: rail.rebuild()
+        onRowsRemoved: rail.rebuild()
+        onModelReset: rail.rebuild()
+    }
+
+    Connections {
+        target: root.appsModel
+        onRowsInserted: rail.rebuild()
+        onRowsRemoved: rail.rebuild()
+        onModelReset: rail.rebuild()
     }
 
     ListView {
@@ -81,7 +126,7 @@ Rectangle {
                         color: "#45c486"
                     }
                     Label {
-                        text: row.kind === "header" ? qsTr(row.title) : row.title
+                        text: row.kind === "header" ? qsTr(model.title) : model.title
                         font.pointSize: row.kind === "header" ? 11 : 13
                         color: row.kind === "header" ? "#aaaaaa"
                                : (row.highlighted ? "#FFFFFF" : "#cccccc")
@@ -92,7 +137,7 @@ Rectangle {
                 }
                 Label {
                     visible: row.kind === "header"
-                    text: row.kind === "header" ? qsTr(row.count) : ""
+                    text: model.count
                     color: "#aaaaaa"; font.pointSize: 11
                     anchors.right: parent.right; anchors.rightMargin: 12
                     anchors.verticalCenter: parent.verticalCenter
@@ -101,9 +146,9 @@ Rectangle {
 
             onClicked: {
                 rail.currentIndex = index
-                if (row.pickable) {
-                    root.selectedHost = row.title
-                    root.devicePicked(row.title)
+                if (model.pickable) {
+                    root.selectedHost = model.title
+                    root.devicePicked(model.index, model.title)
                 }
             }
         }
