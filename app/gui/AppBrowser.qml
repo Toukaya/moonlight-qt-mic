@@ -324,7 +324,7 @@ Rectangle {
         // Content foot: a real footer bar - host left, count right
         Rectangle {
             Layout.fillWidth: true
-            height: footerHeight
+            Layout.preferredHeight: footerHeight
             color: "#2d2d2d"
 
             Label {

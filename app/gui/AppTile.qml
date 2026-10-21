@@ -18,11 +18,11 @@ import QtQuick.Window 2.2
 NavigableItemDelegate {
     id: root
 
-    property GridView grid
     property string appName: ""
     property bool appRunning: false
     property bool appBusy: false
     property string boxartSource: ""
+    property int appIndex: 0
 
     signal appRequested(int appIndex, string appName, string appId)
 
@@ -36,10 +36,14 @@ NavigableItemDelegate {
     readonly property int cellInset: 5
     readonly property int iconInset: 10
     readonly property int labelBlock: 26
+    // The no-grid fallback composes r1's sanctioned form: 200 + 2*iconInset
+    // by 267 + 2*iconInset (220x287)
+    readonly property int fallbackIconWidth: 200
+    readonly property int fallbackIconHeight: 267
 
-    width: grid ? grid.cellWidth : root.iconWidth + 2 * iconInset
+    width: grid ? grid.cellWidth : fallbackIconWidth + 2 * iconInset
     height: grid ? grid.cellHeight
-                 : root.iconHeight + 2 * iconInset + labelBlock
+                 : fallbackIconHeight + 2 * iconInset + labelBlock
 
     // The icon area of the existing delegate, anchored to the top, with
     // the label block reserved under it so the label never clips. The
