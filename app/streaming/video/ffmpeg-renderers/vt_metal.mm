@@ -768,6 +768,15 @@ public:
         syncSeamlessWindows();
         renderSeamlessWindows(frame);
 
+        // Operator requirement: the feature shows ONE APPLICATION's windows, not
+        // the desktop. With a non-empty scoped table, the per-window windows ARE
+        // the presentation, so the desktop surface is not drawn at all - the video
+        // stream still runs, it is what feeds the compose above.
+        if (SeamlessModel *seamlessModel = GetSeamlessModel();
+            seamlessModel != nullptr && !seamlessModel->snapshotTable().windows.isEmpty()) {
+            return;
+        }
+
         std::array<CVMetalTextureRef, MAX_VIDEO_PLANES> cvMetalTextures;
         size_t planes = getFramePlaneCount(frame);
         SDL_assert(planes <= MAX_VIDEO_PLANES);
