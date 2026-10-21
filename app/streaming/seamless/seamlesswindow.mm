@@ -22,6 +22,9 @@
 // The window's index in the applied table: unique (the table caps at 32) and it
 // fits the one-byte id field of the input and intent messages.
 @property(nonatomic) uint8_t tableIndex;
+// Keys this view sent as text, so their up event is not sent as a virtual key:
+// the text event is complete in itself and an orphan key-up is not.
+@property(nonatomic, strong) NSMutableSet<NSNumber*>* textKeys;
 // Where this window sits on the host desktop, and how large it is there: the
 // mouse the client sends is a DESKTOP position, not a window fraction.
 @property(nonatomic) NSPoint cellPos;
@@ -150,8 +153,26 @@ static short host_modifiers_for_event(NSEvent* event)
     const NSEventModifierFlags flags = event.modifierFlags;
     NSString* characters = event.characters;
     if (characters.length > 0 && (flags & (NSEventModifierFlagControl | NSEventModifierFlagCommand)) == 0) {
-        LiSendUtf8TextEvent(characters.UTF8String, (int) strlen(characters.UTF8String));
-        return;
+        // Only PRINTABLE text goes up as UTF-8: the control characters (return,
+        // tab, escape, delete) carry characters too, and they belong to the
+        // virtual-key path below, not to the text path.
+        bool printable = false;
+        for (NSUInteger i = 0; i < characters.length; i++) {
+            const unichar c = [characters characterAtIndex:i];
+            if (c >= 0x20 && c != 0x7F) {
+                printable = true;
+                break;
+            }
+        }
+        if (printable) {
+            LiSendUtf8TextEvent(characters.UTF8String, (int) strlen(characters.UTF8String));
+            // Remember the key so its up event is not sent as a virtual key.
+            if (self.textKeys == nil) {
+                self.textKeys = [NSMutableSet set];
+            }
+            [self.textKeys addObject:@(event.keyCode)];
+            return;
+        }
     }
 
     const short vk = host_vk_for_event(event);
@@ -162,6 +183,12 @@ static short host_modifiers_for_event(NSEvent* event)
 
 - (void)keyUp:(NSEvent*)event
 {
+    // Per-key symmetry: a key that went up as text gets no virtual-key up.
+    if ([self.textKeys containsObject:@(event.keyCode)]) {
+        [self.textKeys removeObject:@(event.keyCode)];
+        return;
+    }
+
     const short vk = host_vk_for_event(event);
     if (vk != 0) {
         LiSendKeyboardEvent(vk, KEY_ACTION_UP, host_modifiers_for_event(event));
