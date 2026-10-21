@@ -19,6 +19,11 @@
 // host, the same way the stream view does today for the desktop.
 @interface SeamlessInputView : NSView
 @property(nonatomic) quint32 windowId;
+// Where this window sits on the host desktop, and how large it is there: the
+// mouse the client sends is a DESKTOP position, not a window fraction.
+@property(nonatomic) NSPoint desktopPos;
+@property(nonatomic) NSSize clientSize;
+@property(nonatomic) NSSize canvasSize;
 @end
 
 @implementation SeamlessInputView
@@ -53,13 +58,71 @@
 {
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     const NSRect bounds = self.bounds;
-    if (bounds.size.width <= 0 || bounds.size.height <= 0) {
+    if (bounds.size.width <= 0 || bounds.size.height <= 0 ||
+        self.clientSize.width <= 0 || self.clientSize.height <= 0 ||
+        self.canvasSize.width <= 0 || self.canvasSize.height <= 0) {
         return;
     }
-    // Window-relative, normalized: the host maps it onto the app's window.
-    const short x = (short) qBound(0.0, point.x / bounds.size.width, 1.0) * 32767;
-    const short y = (short) qBound(0.0, 1.0 - point.y / bounds.size.height, 1.0) * 32767;
-    LiSendMousePositionEvent(x, y, (short) bounds.size.width, (short) bounds.size.height);
+
+    // The fraction inside the local window, then the DESKTOP position it names:
+    // the host's window rect offset plus that fraction of the window's size. The
+    // reference size sent with it is the canvas, so the host maps it exactly.
+    const double fx = qBound(0.0, point.x / bounds.size.width, 1.0);
+    const double fy = qBound(0.0, 1.0 - point.y / bounds.size.height, 1.0);
+    const double desktopX = self.desktopPos.x + fx * self.clientSize.width;
+    const double desktopY = self.desktopPos.y + fy * self.clientSize.height;
+
+    LiSendMousePositionEvent((short) qBound(-32768.0, desktopX, 32767.0),
+                             (short) qBound(-32768.0, desktopY, 32767.0),
+                             (short) self.canvasSize.width, (short) self.canvasSize.height);
+}
+
+/// The host's virtual key for a macOS key event: a character for letters and
+/// digits (VK_A..VK_Z, VK_0..VK_9 are their ASCII codes), a table for the rest.
+static short host_vk_for_event(NSEvent* event)
+{
+    switch (event.keyCode) {
+    case 36: return 0x0D;  // return
+    case 48: return 0x09;  // tab
+    case 49: return 0x20;  // space
+    case 51: return 0x08;  // delete (backspace)
+    case 53: return 0x1B;  // escape
+    case 76: return 0x0D;  // keypad enter
+    case 117: return 0x2E;  // forward delete
+    case 123: return 0x25;  // left
+    case 124: return 0x27;  // right
+    case 125: return 0x28;  // down
+    case 126: return 0x26;  // up
+    case 115: return 0x24;  // home
+    case 119: return 0x23;  // end
+    case 116: return 0x21;  // page up
+    case 121: return 0x22;  // page down
+    default: break;
+    }
+
+    NSString* characters = event.charactersIgnoringModifiers;
+    if (characters.length == 0) {
+        return 0;
+    }
+    const unichar c = [characters characterAtIndex:0];
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+        return (short) QChar(c).toUpper().unicode();
+    }
+    if (c >= '0' && c <= '9') {
+        return (short) c;
+    }
+    return 0;
+}
+
+static short host_modifiers_for_event(NSEvent* event)
+{
+    short modifiers = 0;
+    const NSEventModifierFlags flags = event.modifierFlags;
+    if (flags & NSEventModifierFlagShift) modifiers |= MODIFIER_SHIFT;
+    if (flags & NSEventModifierFlagControl) modifiers |= MODIFIER_CTRL;
+    if (flags & NSEventModifierFlagOption) modifiers |= MODIFIER_ALT;
+    if (flags & NSEventModifierFlagCommand) modifiers |= MODIFIER_META;
+    return modifiers;
 }
 
 - (void)scrollWheel:(NSEvent*)event
@@ -75,13 +138,21 @@
 - (void)keyDown:(NSEvent*)event
 {
     [self focusHost:SEAMLESS_INPUT_FOCUS];
-    // The key code mapping (macOS keycode -> the host's virtual key) lands with
-    // the host apply step; until then a key press at least moves focus to the
-    // right window, and the character still arrives through the existing path.
+    const short vk = host_vk_for_event(event);
+    if (vk != 0) {
+        LiSendKeyboardEvent(vk, KEY_ACTION_DOWN, host_modifiers_for_event(event));
+    }
+    // The local IME keeps the text path; the key itself goes to the host above.
     [self interpretKeyEvents:@[ event ]];
 }
 
-- (void)keyUp:(NSEvent*)event { Q_UNUSED(event); }
+- (void)keyUp:(NSEvent*)event
+{
+    const short vk = host_vk_for_event(event);
+    if (vk != 0) {
+        LiSendKeyboardEvent(vk, KEY_ACTION_UP, host_modifiers_for_event(event));
+    }
+}
 
 @end
 
@@ -297,6 +368,13 @@
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                     "Seamless: scale verdict window=%u scale=%.2f drawable_ok=%d cell_ok=%d",
                     (unsigned) _windowId, (double) scale, drawableOk ? 1 : 0, cellOk ? 1 : 0);
+    }
+
+    if ([_view isKindOfClass:[SeamlessInputView class]]) {
+        SeamlessInputView* inputView = (SeamlessInputView*) _view;
+        inputView.desktopPos = NSPointFromCGPoint(CGPointMake(entry.desktopPos.x(), entry.desktopPos.y()));
+        inputView.clientSize = NSSizeFromCGSize(CGSizeMake(entry.clientSize.width(), entry.clientSize.height()));
+        inputView.canvasSize = NSSizeFromCGSize(canvasSize);
     }
 
     _layer.hidden = (entry.flags & SEAMLESS_WF_VISIBLE) == 0;
