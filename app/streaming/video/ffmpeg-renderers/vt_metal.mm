@@ -480,32 +480,6 @@ public:
         return true;
     }}
 
-    // Caller frees frame after we return
-    // Called from the GPU's completion handler; it must not block (QA's rule).
-    void noteSeamlessGpuUs(double gpuUs, size_t windows)
-    {
-        seamless_instruments::gpuPassUs.store((int) (gpuUs + 0.5));
-        m_SeamlessGpuCount++;
-        if (gpuUs <= 0) {
-            // A reading the driver did not provide is reported, never dropped:
-            // silence would read as a pass.
-            m_SeamlessGpuDropped++;
-        }
-        else {
-            m_SeamlessGpuSumUs += gpuUs;
-            m_SeamlessGpuMaxUs = MAX(m_SeamlessGpuMaxUs, gpuUs);
-            m_SeamlessGpuValid++;
-        }
-        if (m_SeamlessGpuCount % 120 == 0) {
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Seamless: gpu avg=%.1f us max=%.1f us over %d frames (%d readings, %d dropped), %zu windows",
-                        m_SeamlessGpuValid ? m_SeamlessGpuSumUs / m_SeamlessGpuValid : 0.0,
-                        m_SeamlessGpuMaxUs, m_SeamlessGpuCount, m_SeamlessGpuValid,
-                        m_SeamlessGpuDropped, windows);
-        }
-    }
-
-    // QA's main-thread line: the pass itself and the gap between two passes.
     void noteMainThreadPass(std::chrono::steady_clock::time_point startedAt)
     {
         const auto finishedAt = std::chrono::steady_clock::now();
@@ -553,19 +527,6 @@ public:
         // One lock, one version: the table and its canvas travel together, so a
         // render thread can never pair N+1 cells with N canvas.
         const SeamlessModel::TableView view = model->snapshotTable();
-        // Logged when the table changes, not every frame: the sync runs at the
-        // draw rate and a per-frame line would bury the rest of the log.
-        static size_t lastSeenWindows = (size_t) -1;
-        static uint32_t lastSeenCanvasW = 0, lastSeenCanvasH = 0;
-        if (view.windows.size() != lastSeenWindows || view.canvasW != lastSeenCanvasW ||
-            view.canvasH != lastSeenCanvasH) {
-            lastSeenWindows = view.windows.size();
-            lastSeenCanvasW = view.canvasW;
-            lastSeenCanvasH = view.canvasH;
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Seamless: sync entry model=%p table=%d canvas=%ux%u",
-                        (void *) model, (int) view.windows.size(), view.canvasW, view.canvasH);
-        }
         const auto &wins = view.windows;
 
         for (auto it = m_SeamlessWindows.begin(); it != m_SeamlessWindows.end();) {
@@ -654,7 +615,6 @@ public:
 
         // The instrument for the GPU/stall lines: the CPU time this pass spends
         // issuing the draws, and the frames it issued them for.
-        const auto startedAt = std::chrono::steady_clock::now();
 
         const size_t planes = getFramePlaneCount(frame);
         std::array<CVMetalTextureRef, MAX_VIDEO_PLANES> cvMetalTextures;
@@ -730,18 +690,11 @@ public:
         }
 
         if (hardware) {
-            const auto passWindows = m_SeamlessWindows.size();
-            __block VTMetalRenderer *rendererForGpu = this;
             [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
                 // The texture cache owns these references until the GPU is done.
                 for (size_t i = 0; i < planes; i++) {
                     CFRelease(cvMetalTextures[i]);
                 }
-
-                // QA's GPU line: the GPU's own timestamps, never the CPU issue
-                // time and never a wait on the frame thread.
-                const double gpuUs = (buffer.GPUEndTime - buffer.GPUStartTime) * 1e6;
-                rendererForGpu->noteSeamlessGpuUs(gpuUs, passWindows);
             }];
         }
 
@@ -753,16 +706,6 @@ public:
             [commandBuffer waitUntilCompleted];
         }
 
-        const auto elapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
-                                   std::chrono::steady_clock::now() - startedAt).count();
-        m_SeamlessPassUs += (double) elapsedUs;
-        m_SeamlessPassCount++;
-        if (m_SeamlessPassCount % 120 == 0) {
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Seamless: %zu windows, issue time avg %.0f us over %d frames (%s frames)",
-                        m_SeamlessWindows.size(), m_SeamlessPassUs / m_SeamlessPassCount,
-                        m_SeamlessPassCount, hardware ? "hardware" : "software");
-        }
     }}
 
     virtual void renderFrameIntoDrawable(AVFrame* frame, id<CAMetalDrawable> drawable)
@@ -1309,13 +1252,6 @@ private:
     std::map<quint32, SeamlessWindow*> m_SeamlessWindows;
     // QA's bit-correct instrument, measurement only.
     std::map<quint32, CGRect> m_SeamlessCells;
-    double m_SeamlessPassUs = 0;
-    int m_SeamlessPassCount = 0;
-    double m_SeamlessGpuSumUs = 0;
-    double m_SeamlessGpuMaxUs = 0;
-    int m_SeamlessGpuCount = 0;
-    int m_SeamlessGpuValid = 0;
-    int m_SeamlessGpuDropped = 0;
     double m_MainPassMaxUs = 0;
     double m_MainGapMaxUs = 0;
     std::array<double, 120> m_MainPassRing {};
