@@ -207,12 +207,6 @@ NvComputer::NvComputer(NvHTTP& http, QString serverInfo)
     this->appVersion = NvHTTP::getXmlString(serverInfo, "appversion");
     this->gfeVersion = NvHTTP::getXmlString(serverInfo, "GfeVersion");
     this->gpuModel = NvHTTP::getXmlString(serverInfo, "gputype");
-    // The active address is ALWAYS the address that answered, so it is never
-    // null while the host is online. For a manual host this is the manual
-    // address when it is numeric, or the numeric address the manual NAME
-    // resolved to - a real address either way, which is what every request and
-    // every log line needs. Guarding this broke the online line, the app list
-    // request and the connection attempt at once.
     this->activeAddress = http.address();
     this->state = NvComputer::CS_ONLINE;
     this->pendingQuit = false;
@@ -567,20 +561,7 @@ bool NvComputer::update(const NvComputer& that)
     ASSIGN_IF_CHANGED(pairState);
     ASSIGN_IF_CHANGED(serverCodecModeSupport);
     ASSIGN_IF_CHANGED(currentGameId);
-    // A host the operator added by hand keeps the address they entered: a
-    // discovered or cached address may add candidates, but it must not become
-    // the connection address of a manual host until the operator edits it. The
-    // manual host's active address is therefore always its manual address, so it
-    // is never null while the host is online.
-    if (!manualAddress.isNull()) {
-        if (this->activeAddress != manualAddress) {
-            this->activeAddress = manualAddress;
-            changed = true;
-        }
-    }
-    else {
-        ASSIGN_IF_CHANGED(activeAddress);
-    }
+    ASSIGN_IF_CHANGED(activeAddress);
     ASSIGN_IF_CHANGED(state);
     ASSIGN_IF_CHANGED(gfeVersion);
     ASSIGN_IF_CHANGED(appVersion);

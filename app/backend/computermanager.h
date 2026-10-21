@@ -222,9 +222,6 @@ public:
     virtual ~ComputerManager();
 
     Q_INVOKABLE void startPolling();
-    // Poll without starting mDNS discovery: for a host named by a literal address
-    // there is nothing to discover, and the seek must not wait on a browser.
-    Q_INVOKABLE void startPollingDirect();
 
     Q_INVOKABLE void stopPollingAsync();
 
@@ -271,12 +268,6 @@ private:
     QHostAddress getBestGlobalAddressV6(QVector<QHostAddress>& addresses);
 
     void startPollingComputer(NvComputer* computer);
-
-public:
-    // The seeker polls a literal host directly; the class keeps the rest private.
-    void pollComputerDirectly(NvComputer* computer) { startPollingComputer(computer); }
-
-private:
 
     StreamingPreferences* m_Prefs;
     int m_PollingRef;

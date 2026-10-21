@@ -6,7 +6,6 @@
 #include <Limelight.h>
 #include <QtEndian>
 
-#include <QHostInfo>
 #include <QThread>
 #include <QThreadPool>
 #include <QCoreApplication>
@@ -53,46 +52,6 @@ private:
         return true;
     }
 
-    // A manual address may be a NAME - the operator typing "wintb" is a valid
-    // entry and it worked before this work existed. A name is resolved here into
-    // its numeric addresses, IPv4 first, so a dead IPv6 record (an old ULA left
-    // in this machine's hosts file) can never stop the IPv4 attempt and never
-    // reaches the operator as an error. Numeric addresses keep their order and
-    // are always tried before any resolved one.
-    static QVector<NvAddress> expandNames(const QVector<NvAddress>& addresses)
-    {
-        QVector<NvAddress> numeric;
-        QVector<NvAddress> resolved;
-        QVector<std::pair<QString, uint16_t>> names;
-
-        for (const NvAddress& address : addresses) {
-            if (QHostAddress(address.address()).isNull() && !address.address().isEmpty()) {
-                names.append({ address.address(), address.port() });
-            }
-            else {
-                numeric.append(address);
-            }
-        }
-
-        for (const auto& name : std::as_const(names)) {
-            const QHostInfo info = QHostInfo::fromName(name.first);
-            QVector<NvAddress> v4;
-            QVector<NvAddress> v6;
-            for (const QHostAddress& host : info.addresses()) {
-                if (host.protocol() == QAbstractSocket::IPv4Protocol) {
-                    v4.append(NvAddress(host, name.second));
-                }
-                else if (host.protocol() == QAbstractSocket::IPv6Protocol) {
-                    v6.append(NvAddress(host, name.second));
-                }
-            }
-            resolved += v4;
-            resolved += v6;
-        }
-
-        return numeric + resolved;
-    }
-
     bool updateAppList(QNetworkAccessManager* nam, bool& changed)
     {
         NvHTTP http(m_Computer, nam);
@@ -137,7 +96,7 @@ private:
             bool online = false;
             bool wasOnline = m_Computer->state == NvComputer::CS_ONLINE;
             for (int i = 0; i < (wasOnline ? TRIES_BEFORE_OFFLINING : 1) && !online; i++) {
-                for (auto& address : expandNames(m_Computer->uniqueAddresses())) {
+                for (auto& address : m_Computer->uniqueAddresses()) {
                     if (isInterruptionRequested()) {
                         return;
                     }
@@ -434,18 +393,6 @@ void ComputerManager::startPolling()
 }
 
 // Must hold m_Lock for write
-void ComputerManager::startPollingDirect()
-{
-    QWriteLocker lock(&m_Lock);
-
-    if (++m_PollingRef > 1) {
-        return;
-    }
-
-    // Deliberately no mDNS server and no browser: a literal address is polled
-    // directly by the caller.
-}
-
 void ComputerManager::startPollingComputer(NvComputer* computer)
 {
     if (m_PollingRef == 0) {
