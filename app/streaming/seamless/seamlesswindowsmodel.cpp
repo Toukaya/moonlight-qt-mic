@@ -117,6 +117,11 @@ void SeamlessWindowsModel::setPresentationMode(bool enabled)
     SeamlessSetPresentationMode(enabled);
 }
 
+bool SeamlessWindowsModel::presentationMode() const
+{
+    return SeamlessPresentationMode();
+}
+
 void SeamlessWindowsModel::focusWindow(int row)
 {
     if (row < 0 || row >= m_Rows.size()) {

@@ -101,6 +101,12 @@ Item {
     }
 
     StackView.onDeactivating: {
+        // The seamless presentation mode is a property of ONE session: it ends
+        // with the session, so a later classic session can never inherit it.
+        if (SeamlessWindowsModel.presentationMode()) {
+            SeamlessWindowsModel.setPresentationMode(false)
+        }
+
         // Show the toolbar again when popped off the stack
         toolBar.visible = true
 

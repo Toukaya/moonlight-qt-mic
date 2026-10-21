@@ -4,6 +4,8 @@
  */
 #include "seamlessmodel.h"
 
+#include <QDebug>
+
 namespace {
   // One session runs at a time, so one flag is enough; it is set at launch and
   // cleared when the session ends.
@@ -12,7 +14,12 @@ namespace {
 
 void SeamlessSetPresentationMode(bool enabled)
 {
-    g_SeamlessPresentationMode = enabled;
+    if (g_SeamlessPresentationMode != enabled) {
+        g_SeamlessPresentationMode = enabled;
+        // The mode is a property of one session; the line names the change so the
+        // log shows when a session is presenting per window and when it stopped.
+        qInfo() << "Seamless: presentation mode" << (enabled ? "on" : "off");
+    }
 }
 
 bool SeamlessPresentationMode()
