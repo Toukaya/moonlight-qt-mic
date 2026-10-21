@@ -1305,6 +1305,29 @@ Flickable {
 
                 Label {
                     width: parent.width
+                    text: qsTr("Seamless Windows page")
+                    font.pointSize: 12
+                    wrapMode: Text.Wrap
+                }
+
+                CheckBox {
+                    id: seamlessPageCheck
+                    hoverEnabled: true
+                    text: qsTr("Show the Seamless Windows entry in the toolbar")
+                    font.pointSize: 12
+                    checked: StreamingPreferences.uiSeamlessPage
+                    onCheckedChanged: {
+                        StreamingPreferences.uiSeamlessPage = checked
+                    }
+
+                    ToolTip.delay: 1000
+                    ToolTip.timeout: 5000
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Adds a separate page for browsing published apps and running windows. The existing pages stay unchanged.")
+                }
+
+                Label {
+                    width: parent.width
                     id: uiDisplayModeTitle
                     text: qsTr("GUI display mode")
                     font.pointSize: 12
