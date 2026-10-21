@@ -480,35 +480,6 @@ public:
         return true;
     }}
 
-    void noteMainThreadPass(std::chrono::steady_clock::time_point startedAt)
-    {
-        const auto finishedAt = std::chrono::steady_clock::now();
-        const double passUs = std::chrono::duration<double, std::micro>(finishedAt - startedAt).count();
-        double gapUs = 0;
-        if (m_MainLastCall.time_since_epoch().count() != 0) {
-            gapUs = std::chrono::duration<double, std::micro>(startedAt - m_MainLastCall).count();
-        }
-        m_MainLastCall = startedAt;
-
-        m_MainPassMaxUs = MAX(m_MainPassMaxUs, passUs);
-        m_MainGapMaxUs = MAX(m_MainGapMaxUs, gapUs);
-        m_MainPassRing[m_MainCount % m_MainPassRing.size()] = passUs;
-        m_MainCount++;
-
-        if (m_MainCount % 120 == 0) {
-            std::array<double, 120> sorted = m_MainPassRing;
-            std::sort(sorted.begin(), sorted.end());
-            const double p99 = sorted[(size_t) (sorted.size() * 0.99) - 1];
-            double sum = 0;
-            for (double v : sorted) {
-                sum += v;
-            }
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Seamless: main pass avg=%.1f us p99-of-120=%.1f us max=%.1f us gapmax=%.1f us over %d passes",
-                        sum / sorted.size(), p99, m_MainPassMaxUs, m_MainGapMaxUs, m_MainCount);
-        }
-    }
-
     // Keep one local window per remote window, on the thread that owns the window
     // server. Hidden remote windows stay hidden rather than being forgotten, so a
     // minimized window keeps its place in the z order.
@@ -548,17 +519,6 @@ public:
         }
 
         seamless_instruments::windowCount.store((int) wins.size());
-        // The created count, printed when it changes: this runs at the draw rate
-        // and a per-frame line would bury the log.
-        {
-            static size_t lastCreated = (size_t) -1;
-            if (m_SeamlessWindows.size() != lastCreated) {
-                lastCreated = m_SeamlessWindows.size();
-                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                            "Seamless: %zu local windows created (table %zu)",
-                            m_SeamlessWindows.size(), wins.size());
-            }
-        }
         const CGSize canvas = CGSizeMake(view.canvasW, view.canvasH);
         for (size_t index = 0; index < wins.size(); index++) {
             const auto &entry = wins[index];
@@ -1193,18 +1153,6 @@ public:
         // being live. The gate is computed BEFORE the first clock read: with the
         // feature off this callback must cost exactly what it did before, which
         // means zero clock reads, not one.
-        const bool instrumentMain = GetSeamlessModel() != nullptr && !m_SeamlessWindows.empty();
-        std::chrono::steady_clock::time_point mainPassStarted;
-        if (instrumentMain) {
-            mainPassStarted = std::chrono::steady_clock::now();
-        }
-        struct MainPassDone {
-            VTMetalRenderer *self;
-            std::chrono::steady_clock::time_point started;
-            bool enabled;
-            ~MainPassDone() { if (enabled) self->noteMainThreadPass(started); }
-        } mainPassDone {this, mainPassStarted, instrumentMain};
-
         AVFrame* frame = nullptr;
 
         // Determine how long we can wait depending on how long our CAMetalDisplayLink
@@ -1252,11 +1200,6 @@ private:
     std::map<quint32, SeamlessWindow*> m_SeamlessWindows;
     // QA's bit-correct instrument, measurement only.
     std::map<quint32, CGRect> m_SeamlessCells;
-    double m_MainPassMaxUs = 0;
-    double m_MainGapMaxUs = 0;
-    std::array<double, 120> m_MainPassRing {};
-    int m_MainCount = 0;
-    std::chrono::steady_clock::time_point m_MainLastCall {};
     id<MTLTexture> m_SwMappingTextures[MAX_VIDEO_PLANES];
     SDL_MetalView m_MetalView;
     int m_LastFrameWidth;
