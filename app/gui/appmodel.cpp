@@ -43,8 +43,22 @@ Session* AppModel::createSessionForApp(int appIndex)
 {
     Q_ASSERT(appIndex < m_VisibleApps.count());
     NvApp app = m_VisibleApps.at(appIndex);
-
     return new Session(m_Computer, app);
+}
+
+QVariantMap AppModel::getApp(int appIndex)
+{
+    if (appIndex < 0 || appIndex >= m_VisibleApps.count()) {
+        return QVariantMap();
+    }
+    NvApp app = m_VisibleApps.at(appIndex);
+    QVariantMap map;
+    map["name"] = app.name;
+    map["appid"] = app.id;
+    map["running"] = m_Computer->currentGameId == app.id;
+    map["hidden"] = app.hidden;
+    map["boxart"] = const_cast<BoxArtManager&>(m_BoxArtManager).loadBoxArt(m_Computer, app);
+    return map;
 }
 
 int AppModel::getDirectLaunchAppIndex()

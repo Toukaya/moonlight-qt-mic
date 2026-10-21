@@ -422,6 +422,29 @@ ApplicationWindow {
             }
 
             NavigableToolButton {
+                id: libraryButton
+
+                // Additive entry to the separate Seamless Windows page
+                // (operator ruling, plan 6.0). Invisible with the setting off,
+                // so the old flow has no extra route and no UI change.
+                visible: stackView.currentItem instanceof PcView
+                         && StreamingPreferences.uiSeamlessPage
+
+                text: qsTr("Seamless Windows")
+
+                ToolTip.delay: 1000
+                ToolTip.timeout: 5000
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Open the Seamless Windows page")
+
+                onClicked: navigateTo("qrc:/gui/LibraryView.qml", LibraryView)
+
+                Keys.onDownPressed: {
+                    stackView.currentItem.forceActiveFocus(Qt.TabFocus)
+                }
+            }
+
+            NavigableToolButton {
                 id: settingsButton
 
                 iconSource:  "qrc:/res/settings.svg"
