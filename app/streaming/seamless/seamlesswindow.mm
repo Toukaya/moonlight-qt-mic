@@ -142,12 +142,22 @@ static short host_modifiers_for_event(NSEvent* event)
 - (void)keyDown:(NSEvent*)event
 {
     [self focusHost:SEAMLESS_INPUT_FOCUS];
+
+    // Printable text goes up as UTF-8: the host types the characters it receives,
+    // so punctuation, symbols and non-ASCII text are not lost to a key table. Only
+    // the keys that are not text (arrows, enter, tab, escape, delete, home/end/page)
+    // travel as virtual-key events.
+    const NSEventModifierFlags flags = event.modifierFlags;
+    NSString* characters = event.characters;
+    if (characters.length > 0 && (flags & (NSEventModifierFlagControl | NSEventModifierFlagCommand)) == 0) {
+        LiSendUtf8TextEvent(characters.UTF8String, (int) strlen(characters.UTF8String));
+        return;
+    }
+
     const short vk = host_vk_for_event(event);
     if (vk != 0) {
         LiSendKeyboardEvent(vk, KEY_ACTION_DOWN, host_modifiers_for_event(event));
     }
-    // The local IME keeps the text path; the key itself goes to the host above.
-    [self interpretKeyEvents:@[ event ]];
 }
 
 - (void)keyUp:(NSEvent*)event
@@ -447,7 +457,7 @@ static short host_modifiers_for_event(NSEvent* event)
     uint8_t message[SEAMLESS_INTENT_SIZE] {};
     message[0] = SEAMLESS_MSG_WINDOW_INTENT;
     message[1] = (uint8_t) _windowId;
-    message[2] = 5;  // close
+    message[2] = SEAMLESS_INTENT_CLOSE;
     LiSendSeamlessMessage(message, (int) sizeof(message));
     Q_UNUSED(notification);
 }
