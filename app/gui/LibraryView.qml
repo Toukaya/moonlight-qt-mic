@@ -49,8 +49,37 @@ Item {
         root.hostName = name
         browser.hostLabel = name
         appsModel.initialize(ComputerManager, index, true)
-        appsModel.computerLost.connect(root.onComputerLost)
-        rail.rebuild()
+        console.log("[seamless-page] bind: ComputerManager=" + (typeof ComputerManager)
+                    + " computers=" + computerVisual.items.count
+                    + " selected=" + index
+                    + " apps=" + appsVisual.items.count)
+    }
+
+    // Binds a known host at page open: the only online host, else the
+    // first known one. The operator can always switch from the rail.
+    function bindKnownHost() {
+        if (root.computerIndex >= 0 || !root.computerModel) {
+            return
+        }
+        var pick = -1
+        var pickName = ""
+        for (var i = 0; i < computerVisual.items.count; i++) {
+            var c = computerVisual.items.get(i).model
+            if (pick === -1) {
+                pick = i
+                pickName = c.name
+            }
+            if (c.online) {
+                pick = i
+                pickName = c.name
+                break
+            }
+        }
+        if (pick >= 0) {
+            console.log("[seamless-page] auto-bind host '" + pickName
+                        + "' index " + pick)
+            selectHost(pick, pickName)
+        }
     }
 
     function onComputerLost() {
@@ -98,6 +127,40 @@ Item {
         if (typeof ComputerManager !== "undefined") {
             computerModel.initialize(ComputerManager)
         }
+        // Populate the rail, then bind a known host (the saved hosts load
+        // synchronously; discovered ones land through the model's signals)
+        bindKnownHost()
+        railBindTimer.restart()
+    }
+
+    Timer {
+        id: railBindTimer
+        interval: 2500
+        repeat: true
+        property int runs: 0
+        onTriggered: {
+            runs++
+            bindKnownHost()
+            if (runs >= 2) {
+                stop()
+            }
+        }
+    }
+
+    Connections {
+        target: root.computerModel
+        function onRowsInserted(parent, first, last) {
+            if (root.computerIndex < 0) {
+                bindKnownHost()
+            }
+        }
+    }
+
+    Connections {
+        target: root.appsModel
+        function onRowsInserted(parent, first, last) { root.selectHost(root.computerIndex, root.hostName) }
+        function onRowsRemoved(parent, first, last) { root.selectHost(root.computerIndex, root.hostName) }
+        function onModelReset() { root.selectHost(root.computerIndex, root.hostName) }
     }
 
     // The page must not open on an empty grid: when the device list arrives and
@@ -145,7 +208,7 @@ Item {
             launchedBoxart: root.launchedBoxart
             errorText: root.errorText
 
-            onRefreshRequested: rail.rebuild()
+            onRefreshRequested: root.selectHost(root.computerIndex, root.hostName)
             onAppRequested: root.launchApp(appIndex, appName, appId)
         }
     }

@@ -30,6 +30,10 @@ Rectangle {
     readonly property int gridBottomClearance: footerHeight + 16
 
     property string hostLabel: ""
+    // False until the operator picks a device: the page then says so and
+    // offers the rail's device list instead of pretending the host
+    // published nothing (DoD b)
+    property bool hostBound: false
     property string errorText: ""
     property bool listView: false
     property bool showWindows: false
