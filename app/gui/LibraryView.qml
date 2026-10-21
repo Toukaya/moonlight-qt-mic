@@ -81,6 +81,10 @@ Item {
         // The running-windows list's boxart fallback is the launched app's
         var info = appsModel.getApp(appIndex)
         browser.launchedBoxart = info.boxart
+        // The page is the only place a session is launched in presentation mode:
+        // the gate lives here, outside the renderer, so a classic session is never
+        // substituted or suppressed.
+        SeamlessWindowsModel.setPresentationMode(true)
         var segue = component.createObject(root.StackView.view, {
             "appName": appName,
             "session": appsModel.createSessionForApp(appIndex)

@@ -4,6 +4,22 @@
  */
 #include "seamlessmodel.h"
 
+namespace {
+  // One session runs at a time, so one flag is enough; it is set at launch and
+  // cleared when the session ends.
+  bool g_SeamlessPresentationMode = false;
+}
+
+void SeamlessSetPresentationMode(bool enabled)
+{
+    g_SeamlessPresentationMode = enabled;
+}
+
+bool SeamlessPresentationMode()
+{
+    return g_SeamlessPresentationMode;
+}
+
 #include <algorithm>
 
 #include <QDebug>

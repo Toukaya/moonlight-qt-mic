@@ -18,6 +18,13 @@ extern "C" {
 #include <Limelight.h>
 }
 
+// The presentation mode of the session that is starting: set by the page that
+// launches it (the Seamless Windows page sets it, the classic routes never do),
+// read by whatever presents the stream. The gate lives HERE, outside the
+// renderer: a classic session is never substituted or suppressed.
+void SeamlessSetPresentationMode(bool enabled);
+bool SeamlessPresentationMode();
+
 class SeamlessModel : public QObject
 {
     Q_OBJECT

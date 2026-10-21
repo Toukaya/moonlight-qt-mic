@@ -52,6 +52,10 @@ public:
 
     int count() const { return m_Rows.size(); }
 
+    /// The presentation gate: the page that launches a session sets this, the
+    /// classic routes never do. It lives outside the renderer.
+    Q_INVOKABLE void setPresentationMode(bool enabled);
+
     /// Asks the host to focus this row's window: a 0x52 with the row's table
     /// index, the same request a click into the local window sends.
     Q_INVOKABLE void focusWindow(int row);

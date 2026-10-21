@@ -112,6 +112,11 @@ void SeamlessWindowsModel::onWindowsChanged()
     emit countChanged();
 }
 
+void SeamlessWindowsModel::setPresentationMode(bool enabled)
+{
+    SeamlessSetPresentationMode(enabled);
+}
+
 void SeamlessWindowsModel::focusWindow(int row)
 {
     if (row < 0 || row >= m_Rows.size()) {
