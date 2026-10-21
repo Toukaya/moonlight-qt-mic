@@ -138,6 +138,10 @@ void SeamlessModel::applyPending()
     m_LastAckSeq = m_AppliedSeq;
     m_LastAckResult = SEAMLESS_ACK_APPLIED;
     LiSendWindowAck(m_AppliedSeq, SEAMLESS_ACK_APPLIED);
+    // The end-to-end ack line: what this client actually sent, so the host line
+    // can be matched against it.
+    qInfo() << "Seamless: ack sent seq" << m_AppliedSeq << "result" << (int) SEAMLESS_ACK_APPLIED
+            << "windows" << m_AppliedCount;
 
     emit windowsChanged();
 }
