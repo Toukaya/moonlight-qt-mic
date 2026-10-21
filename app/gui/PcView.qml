@@ -12,6 +12,11 @@ import SdlGamepadKeyNavigation 1.0
 CenteredGridView {
     property ComputerModel computerModel : createModel()
 
+    // The last host the operator activated in this grid - the Seamless
+    // Windows toolbar entry opens the page bound to this host
+    property int currentComputerIndex: -1
+    property string currentComputerName: ""
+
     id: pcGrid
     focus: true
     activeFocusOnTab: true
@@ -180,6 +185,16 @@ CenteredGridView {
                     }
                     visible: model.online && model.paired
                 }
+
+                NavigableMenuItem {
+                    text: qsTr("Seamless Windows")
+                    onTriggered: {
+                        var component = Qt.createComponent("LibraryView.qml")
+                        var page = component.createObject(stackView, {"hostIndex": index, "hostName": model.name})
+                        stackView.push(page)
+                    }
+                    visible: model.online && model.paired
+                }
                 NavigableMenuItem {
                     text: qsTr("Wake PC")
                     onTriggered: computerModel.wakeComputer(index)
@@ -227,6 +242,8 @@ CenteredGridView {
                     errorDialog.open()
                 }
                 else if (model.paired) {
+                    currentComputerIndex = index
+                    currentComputerName = model.name
                     // go to game view
                     var component = Qt.createComponent("AppView.qml")
                     var appView = component.createObject(stackView, {"computerIndex": index, "objectName": model.name})

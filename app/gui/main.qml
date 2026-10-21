@@ -434,8 +434,13 @@ ApplicationWindow {
                 id: libraryButton
 
                 // Additive entry to the separate Seamless Windows page
-                // (operator ruling, plan 6.0; permanently visible, default
-                // setting on per the operator's one-pass DoD item (a))
+                // (operator ruling, plan 6.0; per-host destination, default
+                // setting on per the operator's one-pass DoD item (a)).
+                // Visible on the device list while a host is selected there
+                visible: stackView.currentItem instanceof PcView
+                         && stackView.currentItem.currentComputerIndex >= 0
+                         && StreamingPreferences.uiSeamlessPage
+
                 iconSource: "qrc:/res/desktop_windows-48px.svg"
 
                 ToolTip.delay: 1000
@@ -443,7 +448,14 @@ ApplicationWindow {
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Seamless Windows")
 
-                onClicked: navigateTo("qrc:/gui/LibraryView.qml", LibraryView)
+                onClicked: {
+                    var component = Qt.createComponent("LibraryView.qml")
+                    var page = component.createObject(stackView, {
+                        "hostIndex": stackView.currentItem.currentComputerIndex,
+                        "hostName": stackView.currentItem.currentComputerName
+                    })
+                    stackView.push(page)
+                }
 
                 Keys.onDownPressed: {
                     stackView.currentItem.forceActiveFocus(Qt.TabFocus)

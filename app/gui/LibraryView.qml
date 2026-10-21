@@ -21,9 +21,9 @@ import SeamlessWindowsModel 1.0
 Item {
     id: root
 
-    // The host whose apps the page browses: index into ComputerManager's
-    // computer list, set by picking a device in the rail
-    property int computerIndex: -1
+    // The host the page is bound to, received at push time (a per-host
+    // destination, not a global page)
+    property int hostIndex: -1
     property string hostName: ""
     property string errorText: ""
 
@@ -51,44 +51,11 @@ Item {
         appsModel.initialize(ComputerManager, index, true)
         console.log("[seamless-page] bind: ComputerManager=" + (typeof ComputerManager)
                     + " computers=" + computerVisual.items.count
-                    + " selected=" + index
+                    + " host=" + name
+                    + " index=" + index
                     + " apps=" + appsVisual.items.count)
     }
 
-    // Binds a known host at page open: the only online host, else the
-    // first known one. The operator can always switch from the rail.
-    function bindKnownHost() {
-        if (root.computerIndex >= 0 || !root.computerModel) {
-            return
-        }
-        var pick = -1
-        var pickName = ""
-        for (var i = 0; i < computerVisual.items.count; i++) {
-            var c = computerVisual.items.get(i).model
-            if (pick === -1) {
-                pick = i
-                pickName = c.name
-            }
-            if (c.online) {
-                pick = i
-                pickName = c.name
-                break
-            }
-        }
-        if (pick >= 0) {
-            console.log("[seamless-page] auto-bind host '" + pickName
-                        + "' index " + pick)
-            selectHost(pick, pickName)
-        }
-    }
-
-    function onComputerLost() {
-        root.errorText = qsTr("The host is no longer reachable.")
-    }
-
-    // The launch path of the existing app grid (AppView.qml:206-231): the
-    // same running-app guard, the same StreamSegue with a session from
-    // AppModel.createSessionForApp, pushed on the same StackView
     function launchApp(appIndex, appName, appId) {
         var runningId = appsModel.getRunningAppId()
         if (runningId !== 0 && runningId !== appId) {
@@ -119,40 +86,18 @@ Item {
 
     // The rail rows rebuild from the real models
     Component.onCompleted: {
-        // ComputerManager is a context property of the app; the typeof
-        // guard keeps the page loadable where it is absent. The rail
-        // rebuilds itself when the models change
-        if (typeof ComputerManager !== "undefined") {
-            computerModel.initialize(ComputerManager)
-        }
-        // Populate the rail, then bind a known host (the saved hosts load
-        // synchronously; discovered ones land through the model's signals)
-        bindKnownHost()
-        railBindTimer.restart()
-    }
-
-    Timer {
-        id: railBindTimer
-        interval: 2500
-        repeat: true
-        property int runs: 0
-        onTriggered: {
-            runs++
-            bindKnownHost()
-            if (runs >= 2) {
-                stop()
-            }
+        // The host arrives at push time; the page binds on construction.
+        // A page constructed without a host pops back to the device list
+        // with one log line (it never renders an empty host state)
+        if (hostIndex >= 0 && typeof ComputerManager !== "undefined") {
+            selectHost(hostIndex, hostName)
+        } else {
+            console.log("[seamless-page] constructed without a host - popping back to the device list")
+            root.StackView.view.pop()
         }
     }
 
-    Connections {
-        target: root.computerModel
-        function onRowsInserted(parent, first, last) {
-            if (root.computerIndex < 0) {
-                bindKnownHost()
-            }
-        }
-    }
+
 
     Connections {
         target: root.appsModel
