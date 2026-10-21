@@ -89,9 +89,13 @@ void SeamlessWindowsModel::onWindowsChanged()
             // Bits 5..6 are the window state (normal, minimized, maximized).
             row.state = (entry.flags >> 5) & 0x3;
             row.z = entry.z;
-            // The table is scoped to the launched app, so the app's own name is the
-            // window's name: the wire stays frozen (it carries a hash, never text).
-            row.title = appTitle;
+            // One name for the session: the table is scoped to the launched app by
+            // the caller's only_pid filter, so the session's app name is the label.
+            // Per-app titles would need a wire field and the wire stays frozen. When
+            // the session has no launched pid (only_pid == 0, no filter) the rows are
+            // desktop-wide and there is no app name to show: they are labelled
+            // plainly rather than with a name that would be wrong.
+            row.title = appTitle.isEmpty() ? tr("Window") : appTitle;
             // The 0x56 icon, when the host has sent one for this hash, is served
             // by the image provider; an empty value lets the page fall back to the
             // app-list boxart and then the letter tile.
