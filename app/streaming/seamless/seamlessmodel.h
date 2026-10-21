@@ -59,12 +59,18 @@ public:
     static bool mergeDelta(const QVector<WindowEntry>& held, const QVector<WindowEntry>& changed,
                            QVector<WindowEntry>* merged);
 
+    /// One applied version: the table and the canvas it is measured against,
+    /// taken together so a render thread can never pair N+1 cells with N canvas.
+    struct TableView {
+        QVector<WindowEntry> windows;
+        quint16 canvasW = 0;
+        quint16 canvasH = 0;
+    };
+
     // A render thread must not iterate the applied table directly: the decoder
-    // thread replaces it at every frame boundary. These take a copy under the
-    // lock, so a QVector reallocation can never land mid-iteration.
-    QVector<WindowEntry> snapshotWindows() const;
-    quint16 canvasWidth() const { return m_CanvasW; }
-    quint16 canvasHeight() const { return m_CanvasH; }
+    // thread replaces it at every frame boundary. This takes one copy under one
+    // lock acquisition, canvas included.
+    TableView snapshotTable() const;
     const QVector<WindowEntry>& windows() const { return m_Windows; }
     quint8 appliedSeq() const { return m_AppliedSeq; }
     int appliedCount() const { return m_AppliedCount; }

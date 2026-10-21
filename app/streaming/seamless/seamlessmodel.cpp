@@ -142,10 +142,14 @@ void SeamlessModel::applyPending()
     emit windowsChanged();
 }
 
-QVector<SeamlessModel::WindowEntry> SeamlessModel::snapshotWindows() const
+SeamlessModel::TableView SeamlessModel::snapshotTable() const
 {
     QMutexLocker locker(&m_Lock);
-    return m_Windows;
+    TableView view;
+    view.windows = m_Windows;
+    view.canvasW = m_CanvasW;
+    view.canvasH = m_CanvasH;
+    return view;
 }
 
 bool SeamlessModel::mergeDelta(const QVector<WindowEntry>& held, const QVector<WindowEntry>& changed,

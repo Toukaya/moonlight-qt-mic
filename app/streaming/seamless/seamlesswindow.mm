@@ -21,12 +21,17 @@
     quint32 _windowId;
     CGSize _canvasSize;
     simd_float4 _cellUv;
-    // The render thread writes these, the main thread applies them.
+    // The render thread writes the newest entry, the main thread applies it, and
+    // the render thread reads the sampling rect from the same slot - one struct,
+    // one lock, so a frame can never pair a new cell with an old visibility.
     QMutex _pendingLock;
     SeamlessModel::WindowEntry _pendingEntry;
     CGSize _pendingCanvas;
     bool _pendingClose;
     bool _hasPending;
+    // What the render thread samples: written under the lock, used by the quad.
+    simd_float4 _renderCellUv;
+    bool _renderVisible;
 }
 
 - (instancetype)initWithWindowId:(quint32)windowId device:(id<MTLDevice>)device
@@ -43,6 +48,8 @@
     _pendingCanvas = CGSizeMake(1, 1);
     _pendingClose = false;
     _hasPending = false;
+    _renderCellUv = simd_make_float4(0, 0, 1, 1);
+    _renderVisible = false;
 
     // An ordinary window: the remote application looks like a local one, and the
     // user moves and stacks it with the window server, not inside a stream view.
@@ -73,11 +80,34 @@
 - (void)updateWithEntry:(const SeamlessModel::WindowEntry &)entry
              canvasSize:(CGSize)canvasSize
 {
+    bool dispatch = false;
     {
         QMutexLocker locker(&_pendingLock);
-        _pendingEntry = entry;
-        _pendingCanvas = canvasSize;
-        _hasPending = true;
+
+        // The sampling rect and the visibility are what the render thread needs,
+        // and they are cheap to keep current on every version.
+        const CGFloat canvasW = MAX((CGFloat) canvasSize.width, 1.0);
+        const CGFloat canvasH = MAX((CGFloat) canvasSize.height, 1.0);
+        _renderCellUv = simd_make_float4((float) (entry.cellPos.x() / canvasW),
+                                         (float) (entry.cellPos.y() / canvasH),
+                                         (float) (entry.cellSize.width() / canvasW),
+                                         (float) (entry.cellSize.height() / canvasH));
+        _renderVisible = (entry.flags & SEAMLESS_WF_VISIBLE) != 0;
+
+        // One main-thread block per window per *change*, not per frame.
+        if (!_hasPending || _pendingEntry.cellPos != entry.cellPos ||
+            _pendingEntry.cellSize != entry.cellSize || _pendingEntry.clientSize != entry.clientSize ||
+            _pendingEntry.flags != entry.flags || _pendingCanvas.width != canvasSize.width ||
+            _pendingCanvas.height != canvasSize.height) {
+            _pendingEntry = entry;
+            _pendingCanvas = canvasSize;
+            _hasPending = true;
+            dispatch = true;
+        }
+    }
+
+    if (!dispatch) {
+        return;
     }
 
     // The window server belongs to the main thread; this may be the render
@@ -89,6 +119,20 @@
 
 - (void)applyPendingGeometry
 {
+    // C-3: this is the feature's main-thread cost, and it is measured here, in
+    // the block that actually runs on the main thread - the display-link timer
+    // cannot see it.
+    const auto startedAt = std::chrono::steady_clock::now();
+    struct ApplyDone {
+        SeamlessWindow *self;
+        std::chrono::steady_clock::time_point started;
+        ~ApplyDone() {
+            const double us = std::chrono::duration<double, std::micro>(
+                                  std::chrono::steady_clock::now() - started).count();
+            [self noteApplyUs:us];
+        }
+    } applyDone {self, startedAt};
+
     SeamlessModel::WindowEntry entry;
     CGSize canvasSize;
     {
@@ -179,7 +223,8 @@
 
 - (id<CAMetalDrawable>)nextDrawable
 {
-    if (_layer.hidden || _layer.drawableSize.width < 1 || _layer.drawableSize.height < 1) {
+    QMutexLocker locker(&_pendingLock);
+    if (!_renderVisible || _layer.drawableSize.width < 1 || _layer.drawableSize.height < 1) {
         return nil;
     }
     return [_layer nextDrawable];
@@ -187,12 +232,28 @@
 
 - (void)copyCellUvTo:(simd_float4 *)out
 {
-    *out = _cellUv;
+    QMutexLocker locker(&_pendingLock);
+    *out = _renderCellUv;
 }
 
 - (quint32)windowId
 {
     return _windowId;
+}
+
+- (void)noteApplyUs:(double)us
+{
+    static double sum;
+    static double max;
+    static int count;
+    sum += us;
+    max = MAX(max, us);
+    count++;
+    if (count % 120 == 0) {
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "Seamless: main apply avg=%.1f us max=%.1f us over %d applies",
+                    sum / count, max, count);
+    }
 }
 
 - (void)close

@@ -85,6 +85,8 @@ public:
           m_LastDrawableWidth(-1),
           m_LastDrawableHeight(-1)
     {
+        // QA's bit-correct instrument: off unless the measurement pass asks for it.
+        m_SeamlessCompare = qEnvironmentVariableIntValue("MOONLIGHT_SEAMLESS_COMPARE") != 0;
     }
 
     virtual ~VTMetalRenderer() override
@@ -482,14 +484,23 @@ public:
     // Called from the GPU's completion handler; it must not block (QA's rule).
     void noteSeamlessGpuUs(double gpuUs, size_t windows)
     {
-        m_SeamlessGpuSumUs += gpuUs;
-        m_SeamlessGpuMaxUs = MAX(m_SeamlessGpuMaxUs, gpuUs);
         m_SeamlessGpuCount++;
+        if (gpuUs <= 0) {
+            // A reading the driver did not provide is reported, never dropped:
+            // silence would read as a pass.
+            m_SeamlessGpuDropped++;
+        }
+        else {
+            m_SeamlessGpuSumUs += gpuUs;
+            m_SeamlessGpuMaxUs = MAX(m_SeamlessGpuMaxUs, gpuUs);
+            m_SeamlessGpuValid++;
+        }
         if (m_SeamlessGpuCount % 120 == 0) {
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Seamless: gpu avg=%.1f us max=%.1f us over %d frames, %zu windows",
-                        m_SeamlessGpuSumUs / m_SeamlessGpuCount, m_SeamlessGpuMaxUs,
-                        m_SeamlessGpuCount, windows);
+                        "Seamless: gpu avg=%.1f us max=%.1f us over %d frames (%d readings, %d dropped), %zu windows",
+                        m_SeamlessGpuValid ? m_SeamlessGpuSumUs / m_SeamlessGpuValid : 0.0,
+                        m_SeamlessGpuMaxUs, m_SeamlessGpuCount, m_SeamlessGpuValid,
+                        m_SeamlessGpuDropped, windows);
         }
     }
 
@@ -518,7 +529,7 @@ public:
                 sum += v;
             }
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Seamless: main pass avg=%.1f us p99=%.1f us max=%.1f us gapmax=%.1f us over %d passes",
+                        "Seamless: main pass avg=%.1f us p99-of-120=%.1f us max=%.1f us gapmax=%.1f us over %d passes",
                         sum / sorted.size(), p99, m_MainPassMaxUs, m_MainGapMaxUs, m_MainCount);
         }
     }
@@ -533,9 +544,10 @@ public:
             return;
         }
 
-        // A locked copy: the decoder thread replaces the applied table at every
-        // frame boundary, and this runs on the render thread.
-        const QVector<SeamlessModel::WindowEntry> wins = model->snapshotWindows();
+        // One lock, one version: the table and its canvas travel together, so a
+        // render thread can never pair N+1 cells with N canvas.
+        const SeamlessModel::TableView view = model->snapshotTable();
+        const auto &wins = view.windows;
 
         for (auto it = m_SeamlessWindows.begin(); it != m_SeamlessWindows.end();) {
             bool stillThere = false;
@@ -555,7 +567,7 @@ public:
             }
         }
 
-        const CGSize canvas = CGSizeMake(model->canvasWidth(), model->canvasHeight());
+        const CGSize canvas = CGSizeMake(view.canvasW, view.canvasH);
         for (const auto &entry : wins) {
             auto it = m_SeamlessWindows.find(entry.id);
             if (it == m_SeamlessWindows.end()) {
@@ -567,6 +579,8 @@ public:
                 m_SeamlessWindows[entry.id] = window;
                 it = m_SeamlessWindows.find(entry.id);
             }
+            m_SeamlessCells[entry.id] = CGRectMake(entry.cellPos.x(), entry.cellPos.y(),
+                                                   entry.cellSize.width(), entry.cellSize.height());
             [it->second updateWithEntry:entry canvasSize:canvas];
         }
     }
@@ -642,6 +656,50 @@ public:
             [renderEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
             [renderEncoder endEncoding];
 
+            if (m_SeamlessCompare) {
+                const NSUInteger pixelW = (NSUInteger) drawable.texture.width;
+                const NSUInteger pixelH = (NSUInteger) drawable.texture.height;
+                if (pixelW > 0 && pixelH > 0) {
+                    id<MTLBuffer> buffer = [m_MetalLayer.device newBufferWithLength:pixelW * pixelH * 4
+                                                                          options:MTLResourceStorageModeShared];
+                    if (buffer != nil) {
+                        auto blit = [commandBuffer blitCommandEncoder];
+                        [blit copyFromTexture:drawable.texture
+                                  sourceSlice:0
+                                  sourceLevel:0
+                                 sourceOrigin:MTLOriginMake(0, 0, 0)
+                                   sourceSize:MTLSizeMake(pixelW, pixelH, 1)
+                                     toBuffer:buffer
+                            destinationOffset:0
+                       destinationBytesPerRow:pixelW * 4
+                     destinationBytesPerImage:pixelW * pixelH * 4];
+                        [blit endEncoding];
+
+                        const quint32 windowId = pair.first;
+                        const CGRect cell = m_SeamlessCells[windowId];
+                        const quint32 frameIndex = m_SeamlessCompareFrame;
+                        [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+                            // Same polynomial as the host side and the protocol.
+                            std::uint32_t crc = 0xFFFFFFFFu;
+                            const auto *bytes = static_cast<const std::uint8_t *>(buffer.contents);
+                            const std::size_t total = (std::size_t) (pixelW * pixelH * 4);
+                            for (std::size_t i = 0; i < total; i++) {
+                                crc ^= bytes[i];
+                                for (int bit = 0; bit < 8; bit++) {
+                                    crc = (crc & 1u) ? ((crc >> 1) ^ 0xEDB88320u) : (crc >> 1);
+                                }
+                            }
+                            crc ^= 0xFFFFFFFFu;
+                            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                                        "Seamless: compare frame=%u window=%u cell=%.0f,%.0f,%.0fx%.0f clientcrc=%08x",
+                                        frameIndex, windowId, cell.origin.x, cell.origin.y,
+                                        cell.size.width, cell.size.height, crc);
+                        }];
+                        m_SeamlessCompareBuffer = buffer;
+                    }
+                }
+            }
+
             [commandBuffer presentDrawable:drawable];
             drew = true;
         }
@@ -669,9 +727,7 @@ public:
                 // QA's GPU line: the GPU's own timestamps, never the CPU issue
                 // time and never a wait on the frame thread.
                 const double gpuUs = (buffer.GPUEndTime - buffer.GPUStartTime) * 1e6;
-                if (gpuUs > 0) {
-                    rendererForGpu->noteSeamlessGpuUs(gpuUs, passWindows);
-                }
+                rendererForGpu->noteSeamlessGpuUs(gpuUs, passWindows);
             }];
         }
 
@@ -681,6 +737,10 @@ public:
         // hardware frame; the software path must wait because it reuses textures.
         if (!hardware) {
             [commandBuffer waitUntilCompleted];
+        }
+
+        if (m_SeamlessCompare) {
+            m_SeamlessCompareFrame++;
         }
 
         const auto elapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -1211,11 +1271,18 @@ private:
     id<MTLLibrary> m_ShaderLibrary;
     id<MTLCommandQueue> m_CommandQueue;
     std::map<quint32, SeamlessWindow*> m_SeamlessWindows;
+    // QA's bit-correct instrument, measurement only.
+    bool m_SeamlessCompare = false;
+    quint32 m_SeamlessCompareFrame = 0;
+    std::map<quint32, CGRect> m_SeamlessCells;
+    id<MTLBuffer> m_SeamlessCompareBuffer = nil;
     double m_SeamlessPassUs = 0;
     int m_SeamlessPassCount = 0;
     double m_SeamlessGpuSumUs = 0;
     double m_SeamlessGpuMaxUs = 0;
     int m_SeamlessGpuCount = 0;
+    int m_SeamlessGpuValid = 0;
+    int m_SeamlessGpuDropped = 0;
     double m_MainPassMaxUs = 0;
     double m_MainGapMaxUs = 0;
     std::array<double, 120> m_MainPassRing {};
