@@ -24,8 +24,6 @@ Rectangle {
     property string selectedHost: ""
     property var computerModel
     property var appsModel
-    // The running windows of the session (the real applied table), the Apps
-    // section of the rail per the page spec.
     property var windowsModel
 
     signal devicePicked(int index, string name)
@@ -47,41 +45,73 @@ Rectangle {
 
     function rebuild() {
         railModel.clear()
-        // Three sections with counts, per the page spec: Favorites, Devices,
-        // Apps (running windows). Nothing sets a favourite yet, so its count is
-        // honestly zero and the section is empty until the favourite wiring
-        // lands; the section header is present either way.
-        railModel.append({ kind: "header", title: qsTr("Favorites"),
-                           count: "0", running: false, pickable: false, index: -1 })
+        var paired = 0
+        var total = 0
         if (root.computerModel) {
-            railModel.append({ kind: "header", title: qsTr("Devices"),
-                               count: String(computerVisual.items.count), running: false,
-                               pickable: false, index: -1 })
+            // Favorites: the paired hosts - the saved ones (ComputerModel
+            // exposes pairing, not favourites; the mapping is recorded in
+            // the plan's 11.4 amendment)
+            var pairedRows = []
             for (var i = 0; i < computerVisual.items.count; i++) {
-                var computer = computerVisual.items.get(i).model
-                railModel.append({ kind: "item", title: computer.name,
-                                   count: "", running: computer.online,
-                                   pickable: true, index: i })
+                var c = computerVisual.items.get(i).model
+                total++
+                if (c.paired) {
+                    paired++
+                    pairedRows.push(c)
+                }
+            }
+            railModel.append({ kind: "header", title: qsTr("Favorites"),
+                               count: String(paired), running: false,
+                               pickable: false, index: -1 })
+            for (var p = 0; p < pairedRows.length; p++) {
+                railModel.append({ kind: "item", title: pairedRows[p].name,
+                                   count: "", running: pairedRows[p].online,
+                                   pickable: true, index: p })
+            }
+            railModel.append({ kind: "header", title: qsTr("Devices"),
+                               count: String(total), running: false,
+                               pickable: false, index: -1 })
+            for (var d = 0; d < computerVisual.items.count; d++) {
+                var device = computerVisual.items.get(d).model
+                railModel.append({ kind: "item", title: device.name,
+                                   count: "", running: device.online,
+                                   pickable: true, index: d })
             }
         }
+        var openApps = 0
+        if (root.appsModel) {
+            openApps = appsVisual.items.count
+        }
+        railModel.append({ kind: "header", title: qsTr("Apps"),
+                           count: String(openApps) + " " + qsTr("open"),
+                           running: false, pickable: false, index: -1 })
+        if (root.appsModel) {
+            for (var j = 0; j < appsVisual.items.count; j++) {
+                var app = appsVisual.items.get(j).model
+                railModel.append({ kind: "item", title: app.name,
+                                   count: "", running: app.running,
+                                   pickable: false, index: j })
+            }
+        }
+        railModel.append({ kind: "header", title: qsTr("Running windows"),
+                           count: String(root.windowsModel ? root.windowsModel.count : 0),
+                           running: false, pickable: false, index: -1 })
         if (root.windowsModel) {
-            railModel.append({ kind: "header", title: qsTr("Apps"),
-                               count: String(root.windowsModel.count),
-                               running: false, pickable: false, index: -1 })
-            for (var j = 0; j < root.windowsModel.count; j++) {
-                var windowTitle = root.windowsModel.data(root.windowsModel.index(j, 0),
+            // Each row is a live window of the applied table; clicking it asks
+            // the host to focus that window (the page's second route to the
+            // same request the local window sends).
+            for (var w = 0; w < root.windowsModel.count; w++) {
+                var windowTitle = root.windowsModel.data(root.windowsModel.index(w, 0),
                                                          Qt.UserRole + 2)
                 railModel.append({ kind: "item", title: windowTitle ? String(windowTitle)
                                                                     : qsTr("Window"),
-                                   count: "", running: true,
-                                   pickable: false, index: j })
+                                   count: "", running: true, pickable: false, index: w })
             }
         }
     }
 
     onComputerModelChanged: rebuild()
     onAppsModelChanged: rebuild()
-    onWindowsModelChanged: rebuild()
 
     Connections {
         target: root.computerModel
@@ -95,6 +125,11 @@ Rectangle {
         onRowsInserted: rail.rebuild()
         onRowsRemoved: rail.rebuild()
         onModelReset: rail.rebuild()
+    }
+
+    Connections {
+        target: root.windowsModel
+        onCountChanged: rail.rebuild()
     }
 
     ListView {

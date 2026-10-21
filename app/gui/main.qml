@@ -235,6 +235,15 @@ ApplicationWindow {
 
     header: ToolBar {
         id: toolBar
+
+        // The Seamless Windows page carries the app's dark surface on the
+        // header; the classic routes keep the default Material background
+        Rectangle {
+            anchors.fill: parent
+            visible: stackView.currentItem instanceof LibraryView
+            color: "#303030"
+        }
+
         height: 60
         anchors.topMargin: 5
         anchors.bottomMargin: 5
@@ -425,13 +434,8 @@ ApplicationWindow {
                 id: libraryButton
 
                 // Additive entry to the separate Seamless Windows page
-                // (operator ruling, plan 6.0). Invisible with the setting off,
-                // so the old flow has no extra route and no UI change.
-                // Permanently visible: the page is the way into the feature, so
-                // the entry never depends on the current page. The setting stays
-                // for turning the channel off.
-                visible: true
-
+                // (operator ruling, plan 6.0; permanently visible, default
+                // setting on per the operator's one-pass DoD item (a))
                 iconSource: "qrc:/res/desktop_windows-48px.svg"
 
                 ToolTip.delay: 1000

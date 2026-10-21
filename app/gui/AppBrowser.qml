@@ -311,25 +311,52 @@ Rectangle {
 
                 Label {
                     anchors.verticalCenter: parent.verticalCenter
+<<<<<<< HEAD
                     anchors.right: closeButton.left
                     anchors.rightMargin: 8
+=======
+                    anchors.right: focusButton.left
+                    anchors.rightMargin: 12
+>>>>>>> bfede3dd
                     text: qsTr("window id %1").arg(model.id)
                     font.pointSize: 11
                     color: "#aaaaaa"
                 }
 
+<<<<<<< HEAD
                 // A row focuses its window on the host; the x closes it there.
+=======
+                NavigableToolButton {
+                    id: focusButton
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.right: closeButton.left
+                    text: qsTr("Focus")
+                    font.pointSize: 11
+                    onClicked: windowsModel.focusWindow(index)
+                    ToolTip.delay: 1000
+                    ToolTip.timeout: 3000
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Focus this window")
+                }
+
+>>>>>>> bfede3dd
                 NavigableToolButton {
                     id: closeButton
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.right: parent.right
+<<<<<<< HEAD
                     anchors.rightMargin: 8
                     text: "\u00d7"
                     font.pointSize: 14
+=======
+                    text: qsTr("Close")
+                    font.pointSize: 11
+>>>>>>> bfede3dd
                     onClicked: windowsModel.closeWindow(index)
                     ToolTip.delay: 1000
                     ToolTip.timeout: 3000
                     ToolTip.visible: hovered
+<<<<<<< HEAD
                     ToolTip.text: qsTr("Close window")
                 }
 
@@ -337,6 +364,9 @@ Rectangle {
                     anchors.fill: parent
                     z: -1
                     onClicked: windowsModel.focusWindow(index)
+=======
+                    ToolTip.text: qsTr("Close this window")
+>>>>>>> bfede3dd
                 }
             }
 
@@ -375,23 +405,27 @@ Rectangle {
         }
     }
 
-    // Empty state (plan 11.5): one line plus refresh. A root-level overlay:
-    // it must not live inside the ColumnLayout, where anchors are undefined
+    // Empty states (plan 11.5 + DoD b): no host bound says so and offers
+    // the rail's device list; a bound host with zero apps gets the true
+    // zero line. A root-level overlay: it must not live inside the
+    // ColumnLayout, where anchors are undefined
     Column {
         anchors.centerIn: parent
         spacing: 12
-        visible: tileGrid.count === 0 && root.errorText === ""
+        visible: root.errorText === "" && (!root.hostBound || tileGrid.count === 0)
         z: 10
 
         Label {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: qsTr("This host publishes no apps")
+            text: root.hostBound ? qsTr("This host publishes no apps")
+                                 : qsTr("Pick a device from the list")
             font.pointSize: 20
             color: "#aaaaaa"
         }
 
         Button {
             anchors.horizontalCenter: parent.horizontalCenter
+            visible: root.hostBound
             text: qsTr("Refresh")
             onClicked: root.refreshRequested()
         }

@@ -139,7 +139,10 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             hostLabel: root.hostName
+            hostBound: root.computerIndex >= 0
             appsModel: appsModel
+            windowsModel: windowsModel
+            launchedBoxart: root.launchedBoxart
             errorText: root.errorText
 
             onRefreshRequested: rail.rebuild()
