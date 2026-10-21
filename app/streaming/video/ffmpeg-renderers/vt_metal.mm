@@ -87,7 +87,6 @@ public:
           m_LastDrawableHeight(-1)
     {
         // QA's bit-correct instrument: off unless the measurement pass asks for it.
-        m_SeamlessCompare = qEnvironmentVariableIntValue("MOONLIGHT_SEAMLESS_COMPARE") != 0;
     }
 
     virtual ~VTMetalRenderer() override
@@ -715,50 +714,6 @@ public:
             [renderEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
             [renderEncoder endEncoding];
 
-            if (m_SeamlessCompare) {
-                const NSUInteger pixelW = (NSUInteger) drawable.texture.width;
-                const NSUInteger pixelH = (NSUInteger) drawable.texture.height;
-                if (pixelW > 0 && pixelH > 0) {
-                    id<MTLBuffer> buffer = [m_MetalLayer.device newBufferWithLength:pixelW * pixelH * 4
-                                                                          options:MTLResourceStorageModeShared];
-                    if (buffer != nil) {
-                        auto blit = [commandBuffer blitCommandEncoder];
-                        [blit copyFromTexture:drawable.texture
-                                  sourceSlice:0
-                                  sourceLevel:0
-                                 sourceOrigin:MTLOriginMake(0, 0, 0)
-                                   sourceSize:MTLSizeMake(pixelW, pixelH, 1)
-                                     toBuffer:buffer
-                            destinationOffset:0
-                       destinationBytesPerRow:pixelW * 4
-                     destinationBytesPerImage:pixelW * pixelH * 4];
-                        [blit endEncoding];
-
-                        const quint32 windowId = pair.first;
-                        const CGRect cell = m_SeamlessCells[windowId];
-                        const quint32 frameIndex = m_SeamlessCompareFrame;
-                        [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-                            // Same polynomial as the host side and the protocol.
-                            std::uint32_t crc = 0xFFFFFFFFu;
-                            const auto *bytes = static_cast<const std::uint8_t *>(buffer.contents);
-                            const std::size_t total = (std::size_t) (pixelW * pixelH * 4);
-                            for (std::size_t i = 0; i < total; i++) {
-                                crc ^= bytes[i];
-                                for (int bit = 0; bit < 8; bit++) {
-                                    crc = (crc & 1u) ? ((crc >> 1) ^ 0xEDB88320u) : (crc >> 1);
-                                }
-                            }
-                            crc ^= 0xFFFFFFFFu;
-                            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                                        "Seamless: compare frame=%u window=%u cell=%.0f,%.0f,%.0fx%.0f clientcrc=%08x",
-                                        frameIndex, windowId, cell.origin.x, cell.origin.y,
-                                        cell.size.width, cell.size.height, crc);
-                        }];
-                        m_SeamlessCompareBuffer = buffer;
-                    }
-                }
-            }
-
             [commandBuffer presentDrawable:drawable];
             drew = true;
         }
@@ -796,10 +751,6 @@ public:
         // hardware frame; the software path must wait because it reuses textures.
         if (!hardware) {
             [commandBuffer waitUntilCompleted];
-        }
-
-        if (m_SeamlessCompare) {
-            m_SeamlessCompareFrame++;
         }
 
         const auto elapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -1357,10 +1308,7 @@ private:
     id<MTLCommandQueue> m_CommandQueue;
     std::map<quint32, SeamlessWindow*> m_SeamlessWindows;
     // QA's bit-correct instrument, measurement only.
-    bool m_SeamlessCompare = false;
-    quint32 m_SeamlessCompareFrame = 0;
     std::map<quint32, CGRect> m_SeamlessCells;
-    id<MTLBuffer> m_SeamlessCompareBuffer = nil;
     double m_SeamlessPassUs = 0;
     int m_SeamlessPassCount = 0;
     double m_SeamlessGpuSumUs = 0;
