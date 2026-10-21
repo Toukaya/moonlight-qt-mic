@@ -19,9 +19,12 @@
 // host, the same way the stream view does today for the desktop.
 @interface SeamlessInputView : NSView
 @property(nonatomic) quint32 windowId;
+// The window's index in the applied table: unique (the table caps at 32) and it
+// fits the one-byte id field of the input and intent messages.
+@property(nonatomic) uint8_t tableIndex;
 // Where this window sits on the host desktop, and how large it is there: the
 // mouse the client sends is a DESKTOP position, not a window fraction.
-@property(nonatomic) NSPoint desktopPos;
+@property(nonatomic) NSPoint cellPos;
 @property(nonatomic) NSSize clientSize;
 @property(nonatomic) NSSize canvasSize;
 @end
@@ -40,7 +43,7 @@
     // host can raise it before the next input lands.
     uint8_t message[SEAMLESS_INPUT_SIZE] {};
     message[0] = SEAMLESS_MSG_WINDOW_INPUT;
-    message[1] = (uint8_t) self.windowId;
+    message[1] = self.tableIndex;
     message[2] = mode;
     LiSendSeamlessMessage(message, (int) sizeof(message));
 }
@@ -64,16 +67,17 @@
         return;
     }
 
-    // The fraction inside the local window, then the DESKTOP position it names:
-    // the host's window rect offset plus that fraction of the window's size. The
-    // reference size sent with it is the canvas, so the host maps it exactly.
+    // The position is in CANVAS space, which is the space the reference size names:
+    // the cell's canvas origin plus that fraction of the cell. The host rescales
+    // canvas to desktop (desktopW / referenceW), so the two agree; sending desktop
+    // pixels against a canvas reference is what double-scaled it.
     const double fx = qBound(0.0, point.x / bounds.size.width, 1.0);
     const double fy = qBound(0.0, 1.0 - point.y / bounds.size.height, 1.0);
-    const double desktopX = self.desktopPos.x + fx * self.clientSize.width;
-    const double desktopY = self.desktopPos.y + fy * self.clientSize.height;
+    const double canvasX = self.cellPos.x + fx * self.clientSize.width;
+    const double canvasY = self.cellPos.y + fy * self.clientSize.height;
 
-    LiSendMousePositionEvent((short) qBound(-32768.0, desktopX, 32767.0),
-                             (short) qBound(-32768.0, desktopY, 32767.0),
+    LiSendMousePositionEvent((short) qBound(-32768.0, canvasX, 32767.0),
+                             (short) qBound(-32768.0, canvasY, 32767.0),
                              (short) self.canvasSize.width, (short) self.canvasSize.height);
 }
 
@@ -376,7 +380,7 @@ static short host_modifiers_for_event(NSEvent* event)
 
     if ([_view isKindOfClass:[SeamlessInputView class]]) {
         SeamlessInputView* inputView = (SeamlessInputView*) _view;
-        inputView.desktopPos = NSPointFromCGPoint(CGPointMake(entry.desktopPos.x(), entry.desktopPos.y()));
+        inputView.cellPos = NSPointFromCGPoint(CGPointMake(entry.cellPos.x(), entry.cellPos.y()));
         inputView.clientSize = NSSizeFromCGSize(CGSizeMake(entry.clientSize.width(), entry.clientSize.height()));
         inputView.canvasSize = NSSizeFromCGSize(canvasSize);
     }

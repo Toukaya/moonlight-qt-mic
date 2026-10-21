@@ -573,7 +573,8 @@ public:
 
         seamless_instruments::windowCount.store((int) wins.size());
         const CGSize canvas = CGSizeMake(view.canvasW, view.canvasH);
-        for (const auto &entry : wins) {
+        for (size_t index = 0; index < wins.size(); index++) {
+            const auto &entry = wins[index];
             auto it = m_SeamlessWindows.find(entry.id);
             if (it == m_SeamlessWindows.end()) {
                 SeamlessWindow *window = [[SeamlessWindow alloc] initWithWindowId:entry.id
@@ -586,6 +587,7 @@ public:
             }
             m_SeamlessCells[entry.id] = CGRectMake(entry.cellPos.x(), entry.cellPos.y(),
                                                    entry.cellSize.width(), entry.cellSize.height());
+            [it->second setTableIndex:(uint8_t) index];
             [it->second updateWithEntry:entry canvasSize:canvas];
         }
     }
