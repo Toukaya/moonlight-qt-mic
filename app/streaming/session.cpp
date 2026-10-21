@@ -871,9 +871,11 @@ bool Session::initialize(QQuickWindow* qtWindow)
     SDL_StopTextInput();
 
     LiInitializeStreamConfiguration(&m_StreamConfig);
-    // The channel is off unless it is forced on for a test run. A later stage
-    // replaces this with a preference; this stage must change nothing by itself.
-    m_StreamConfig.enableSeamless = (qEnvironmentVariableIntValue("MOONLIGHT_SEAMLESS") != 0);
+    // The channel follows the Seamless Windows setting of the page: the page is
+    // the only way in, and the setting is what the page entry honours. The
+    // environment variable stays as an explicit test override only.
+    m_StreamConfig.enableSeamless = m_Preferences->uiSeamlessPage ||
+            (qEnvironmentVariableIntValue("MOONLIGHT_SEAMLESS") != 0);
     if (m_StreamConfig.enableSeamless) {
         qInfo() << "Seamless window channel: asking the host for the capability";
     }
