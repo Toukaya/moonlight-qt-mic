@@ -311,11 +311,32 @@ Rectangle {
 
                 Label {
                     anchors.verticalCenter: parent.verticalCenter
-                    anchors.right: parent.right
-                    anchors.rightMargin: 12
+                    anchors.right: closeButton.left
+                    anchors.rightMargin: 8
                     text: qsTr("window id %1").arg(model.id)
                     font.pointSize: 11
                     color: "#aaaaaa"
+                }
+
+                // A row focuses its window on the host; the x closes it there.
+                NavigableToolButton {
+                    id: closeButton
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.right: parent.right
+                    anchors.rightMargin: 8
+                    text: "\u00d7"
+                    font.pointSize: 14
+                    onClicked: windowsModel.closeWindow(index)
+                    ToolTip.delay: 1000
+                    ToolTip.timeout: 3000
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Close window")
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    z: -1
+                    onClicked: windowsModel.focusWindow(index)
                 }
             }
 

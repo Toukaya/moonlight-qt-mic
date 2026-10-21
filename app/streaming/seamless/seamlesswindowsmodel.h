@@ -52,6 +52,13 @@ public:
 
     int count() const { return m_Rows.size(); }
 
+    /// Asks the host to focus this row's window: a 0x52 with the row's table
+    /// index, the same request a click into the local window sends.
+    Q_INVOKABLE void focusWindow(int row);
+    /// Asks the host to close this row's window: a 0x58 with kind 5, the same
+    /// request the local window's close button sends.
+    Q_INVOKABLE void closeWindow(int row);
+
 signals:
     void countChanged();
 

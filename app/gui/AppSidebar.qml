@@ -24,6 +24,9 @@ Rectangle {
     property string selectedHost: ""
     property var computerModel
     property var appsModel
+    // The running windows of the session (the real applied table), the Apps
+    // section of the rail per the page spec.
+    property var windowsModel
 
     signal devicePicked(int index, string name)
 
@@ -44,6 +47,12 @@ Rectangle {
 
     function rebuild() {
         railModel.clear()
+        // Three sections with counts, per the page spec: Favorites, Devices,
+        // Apps (running windows). Nothing sets a favourite yet, so its count is
+        // honestly zero and the section is empty until the favourite wiring
+        // lands; the section header is present either way.
+        railModel.append({ kind: "header", title: qsTr("Favorites"),
+                           count: "0", running: false, pickable: false, index: -1 })
         if (root.computerModel) {
             railModel.append({ kind: "header", title: qsTr("Devices"),
                                count: String(computerVisual.items.count), running: false,
@@ -55,14 +64,16 @@ Rectangle {
                                    pickable: true, index: i })
             }
         }
-        if (root.appsModel && root.appsModel.count > 0) {
+        if (root.windowsModel) {
             railModel.append({ kind: "header", title: qsTr("Apps"),
-                               count: String(appsVisual.items.count) + " " + qsTr("open"),
+                               count: String(root.windowsModel.count),
                                running: false, pickable: false, index: -1 })
-            for (var j = 0; j < appsVisual.items.count; j++) {
-                var app = appsVisual.items.get(j).model
-                railModel.append({ kind: "item", title: app.name,
-                                   count: "", running: app.running,
+            for (var j = 0; j < root.windowsModel.count; j++) {
+                var windowTitle = root.windowsModel.data(root.windowsModel.index(j, 0),
+                                                         Qt.UserRole + 2)
+                railModel.append({ kind: "item", title: windowTitle ? String(windowTitle)
+                                                                    : qsTr("Window"),
+                                   count: "", running: true,
                                    pickable: false, index: j })
             }
         }
@@ -70,6 +81,7 @@ Rectangle {
 
     onComputerModelChanged: rebuild()
     onAppsModelChanged: rebuild()
+    onWindowsModelChanged: rebuild()
 
     Connections {
         target: root.computerModel

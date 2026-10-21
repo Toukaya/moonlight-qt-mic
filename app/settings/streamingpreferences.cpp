@@ -194,7 +194,7 @@ void StreamingPreferences::reload()
                                                                                                                  : UIDisplayMode::UI_MAXIMIZED)).toInt());
     language = static_cast<Language>(settings.value(SER_LANGUAGE,
                                                     static_cast<int>(Language::LANG_AUTO)).toInt());
-    uiSeamlessPage = settings.value(SER_SEAMLESSPAGE, false).toBool();
+    uiSeamlessPage = settings.value(SER_SEAMLESSPAGE, true).toBool();
 
 
     // Perform default settings updates as required based on last default version

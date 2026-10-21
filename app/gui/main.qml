@@ -427,8 +427,10 @@ ApplicationWindow {
                 // Additive entry to the separate Seamless Windows page
                 // (operator ruling, plan 6.0). Invisible with the setting off,
                 // so the old flow has no extra route and no UI change.
-                visible: stackView.currentItem instanceof PcView
-                         && StreamingPreferences.uiSeamlessPage
+                // Permanently visible: the page is the way into the feature, so
+                // the entry never depends on the current page. The setting stays
+                // for turning the channel off.
+                visible: true
 
                 iconSource: "qrc:/res/desktop_windows-48px.svg"
 

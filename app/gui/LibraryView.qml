@@ -128,6 +128,7 @@ Item {
             Layout.fillHeight: true
             computerModel: computerModel
             appsModel: appsModel
+            windowsModel: windowsModel
             selectedHost: root.hostName
 
             onDevicePicked: root.selectHost(index, name)

@@ -111,3 +111,32 @@ void SeamlessWindowsModel::onWindowsChanged()
     endResetModel();
     emit countChanged();
 }
+
+void SeamlessWindowsModel::focusWindow(int row)
+{
+    if (row < 0 || row >= m_Rows.size()) {
+        return;
+    }
+
+    // 0x52 carries the table index of the window to focus: the same byte a click
+    // into the local window sends, so the host has one focus path.
+    uint8_t message[SEAMLESS_INPUT_SIZE] {};
+    message[0] = SEAMLESS_MSG_WINDOW_INPUT;
+    message[1] = (uint8_t) row;
+    message[2] = SEAMLESS_INPUT_FOCUS_RAISE;
+    LiSendSeamlessMessage(message, (int) sizeof(message));
+}
+
+void SeamlessWindowsModel::closeWindow(int row)
+{
+    if (row < 0 || row >= m_Rows.size()) {
+        return;
+    }
+
+    // 0x58 kind 5: the close intent the local window's close button sends.
+    uint8_t message[SEAMLESS_INTENT_SIZE] {};
+    message[0] = SEAMLESS_MSG_WINDOW_INTENT;
+    message[1] = (uint8_t) row;
+    message[2] = SEAMLESS_INTENT_CLOSE;
+    LiSendSeamlessMessage(message, (int) sizeof(message));
+}
