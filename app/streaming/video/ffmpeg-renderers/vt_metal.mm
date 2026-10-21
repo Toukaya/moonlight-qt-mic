@@ -11,6 +11,7 @@
 #include "streaming/streamutils.h"
 #include "streaming/seamless/seamlessmodel.h"
 #include "streaming/seamless/seamlesswindow.h"
+#include "streaming/seamless/seamlessinstruments.h"
 #include "path.h"
 
 #include <chrono>
@@ -484,6 +485,7 @@ public:
     // Called from the GPU's completion handler; it must not block (QA's rule).
     void noteSeamlessGpuUs(double gpuUs, size_t windows)
     {
+        seamless_instruments::gpuPassUs.store((int) (gpuUs + 0.5));
         m_SeamlessGpuCount++;
         if (gpuUs <= 0) {
             // A reading the driver did not provide is reported, never dropped:
@@ -567,6 +569,7 @@ public:
             }
         }
 
+        seamless_instruments::windowCount.store((int) wins.size());
         const CGSize canvas = CGSizeMake(view.canvasW, view.canvasH);
         for (const auto &entry : wins) {
             auto it = m_SeamlessWindows.find(entry.id);
@@ -1217,14 +1220,17 @@ public:
 
     void renderLatestFrameOnDrawable(id<CAMetalDrawable> drawable, CFTimeInterval targetTimestamp)
     {
-        // The instrument for QA's main-thread line: this whole call runs on the
-        // main run loop, driven by the display link.
+        // The instrument for QA's main-thread line, gated on the seamless path
+        // being live: with the feature off this callback must be unchanged, and
+        // two clock reads per pass are a change.
         const auto mainPassStarted = std::chrono::steady_clock::now();
+        const bool instrumentMain = GetSeamlessModel() != nullptr && !m_SeamlessWindows.empty();
         struct MainPassDone {
             VTMetalRenderer *self;
             std::chrono::steady_clock::time_point started;
-            ~MainPassDone() { self->noteMainThreadPass(started); }
-        } mainPassDone {this, mainPassStarted};
+            bool enabled;
+            ~MainPassDone() { if (enabled) self->noteMainThreadPass(started); }
+        } mainPassDone {this, mainPassStarted, instrumentMain};
 
         AVFrame* frame = nullptr;
 

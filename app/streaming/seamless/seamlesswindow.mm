@@ -8,6 +8,8 @@
 #import <AppKit/AppKit.h>
 #include <SDL_log.h>
 
+#include "seamlessinstruments.h"
+
 #include <QMutex>
 #include <QMutexLocker>
 
@@ -32,6 +34,7 @@
     // What the render thread samples: written under the lock, used by the quad.
     simd_float4 _renderCellUv;
     bool _renderVisible;
+    CGSize _renderDrawableSize;
 }
 
 - (instancetype)initWithWindowId:(quint32)windowId device:(id<MTLDevice>)device
@@ -50,6 +53,7 @@
     _hasPending = false;
     _renderCellUv = simd_make_float4(0, 0, 1, 1);
     _renderVisible = false;
+    _renderDrawableSize = CGSizeMake(0, 0);
 
     // An ordinary window: the remote application looks like a local one, and the
     // user moves and stacks it with the window server, not inside a stream view.
@@ -179,6 +183,15 @@
     frame.size = frameSize;
     [_window setFrame:frame display:NO];
     _layer.drawableSize = CGSizeMake(content.width * scale, content.height * scale);
+    {
+        // The render thread reads the size it will draw into; it must see the
+        // same value as the layer, under the same lock as the cell.
+        QMutexLocker locker(&_pendingLock);
+        _renderDrawableSize = _layer.drawableSize;
+    }
+    seamless_instruments::drawableW.store((int) (_layer.drawableSize.width + 0.5));
+    seamless_instruments::drawableH.store((int) (_layer.drawableSize.height + 0.5));
+    seamless_instruments::drawableScaleX100.store((int) (scale * 100 + 0.5));
 
     // The cell is the window's whole rectangle on the canvas (the host never
     // crops a cell), so this rectangle and the drawable describe the same
@@ -223,8 +236,17 @@
 
 - (id<CAMetalDrawable>)nextDrawable
 {
-    QMutexLocker locker(&_pendingLock);
-    if (!_renderVisible || _layer.drawableSize.width < 1 || _layer.drawableSize.height < 1) {
+    // Under backpressure the drawable call blocks; the lock must not be held
+    // across it or the main thread waits inside applyPendingGeometry.
+    CGSize drawableSize;
+    {
+        QMutexLocker locker(&_pendingLock);
+        if (!_renderVisible) {
+            return nil;
+        }
+        drawableSize = _renderDrawableSize;
+    }
+    if (drawableSize.width < 1 || drawableSize.height < 1) {
         return nil;
     }
     return [_layer nextDrawable];
@@ -248,6 +270,7 @@
     static int count;
     sum += us;
     max = MAX(max, us);
+    seamless_instruments::mainApplyUs.store((int) (us + 0.5));
     count++;
     if (count % 120 == 0) {
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
