@@ -446,8 +446,11 @@ ApplicationWindow {
                 // Opens the page for the host selected in PcView, the same
                 // per-host destination the context menu pushes. Hidden while no
                 // host is selected: the page has nothing to bind without one.
+                // The visible setting gates the entry as well as the channel:
+                // turning it off hides the affordance and disables the feature.
                 visible: stackView.currentItem instanceof PcView
                          && stackView.currentItem.currentIndex >= 0
+                         && StreamingPreferences.uiSeamlessPage
                 onClicked: {
                     var pc = stackView.currentItem
                     var hostIndex = pc.currentIndex
