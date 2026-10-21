@@ -483,7 +483,9 @@ static short host_modifiers_for_event(NSEvent* event)
     // existing kind field, so the wire layout is untouched.
     uint8_t message[SEAMLESS_INTENT_SIZE] {};
     message[0] = SEAMLESS_MSG_WINDOW_INTENT;
-    message[1] = (uint8_t) _windowId;
+    // The index into the applied table, exactly as the focus message sends it:
+    // the host resolves this byte as an index, not as a handle.
+    message[1] = self.tableIndex;
     message[2] = SEAMLESS_INTENT_CLOSE;
     LiSendSeamlessMessage(message, (int) sizeof(message));
     Q_UNUSED(notification);
