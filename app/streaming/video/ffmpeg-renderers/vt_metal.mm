@@ -541,6 +541,11 @@ public:
     // minimized window keeps its place in the z order.
     void syncSeamlessWindows()
     {
+        // With the channel off there is no table and no window to place: return
+        // before any AppKit or metal work, so a disabled feature costs nothing.
+        if (!LiIsSeamlessEnabled()) {
+            return;
+        }
         SeamlessModel *model = GetSeamlessModel();
         if (model == nullptr) {
             return;
@@ -549,8 +554,19 @@ public:
         // One lock, one version: the table and its canvas travel together, so a
         // render thread can never pair N+1 cells with N canvas.
         const SeamlessModel::TableView view = model->snapshotTable();
-        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Seamless: sync entry model=%p table=%d canvas=%ux%u",
-                    (void *) model, (int) view.windows.size(), view.canvasW, view.canvasH);
+        // Logged when the table changes, not every frame: the sync runs at the
+        // draw rate and a per-frame line would bury the rest of the log.
+        static size_t lastSeenWindows = (size_t) -1;
+        static uint32_t lastSeenCanvasW = 0, lastSeenCanvasH = 0;
+        if (view.windows.size() != lastSeenWindows || view.canvasW != lastSeenCanvasW ||
+            view.canvasH != lastSeenCanvasH) {
+            lastSeenWindows = view.windows.size();
+            lastSeenCanvasW = view.canvasW;
+            lastSeenCanvasH = view.canvasH;
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                        "Seamless: sync entry model=%p table=%d canvas=%ux%u",
+                        (void *) model, (int) view.windows.size(), view.canvasW, view.canvasH);
+        }
         const auto &wins = view.windows;
 
         for (auto it = m_SeamlessWindows.begin(); it != m_SeamlessWindows.end();) {
